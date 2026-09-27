@@ -2,7 +2,7 @@
 
 A Chrome extension that scores the Gmail message you're reading for phishing and shows the verdict inline. The backend is an ASP.NET Core API that combines a **machine-learned text classifier (ML.NET)** with **rule-based sender and link checks**, and it explains every verdict in plain language.
 
-![CI/CD](../../actions/workflows/ci-cd.yml/badge.svg)
+[![CI/CD](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml)
 
 ```
 ┌──────────── Gmail tab ────────────┐          ┌──────────── ASP.NET Core API (Docker) ─────────────┐
