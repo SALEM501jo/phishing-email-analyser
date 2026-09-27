@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Phishing Email Analyser - Options</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; min-width: 380px; color: #1f1f1f; }
+    label { display: block; margin: 12px 0 4px; font-weight: 600; }
+    input[type=text], input[type=password] { width: 100%; box-sizing: border-box; padding: 6px 8px; }
+    .check { font-weight: 400; display: flex; gap: 8px; align-items: flex-start; }
+    small { color: #5f6368; display: block; }
+    button { margin-top: 16px; padding: 6px 16px; }
+    #status { margin-left: 8px; color: #137333; }
+  </style>
+</head>
+<body>
+  <label for="apiUrl">API URL</label>
+  <input id="apiUrl" type="text" placeholder="http://localhost:5080">
+  <small>Your self-hosted analyser, e.g. https://phishing.example.com</small>
+
+  <label for="apiKey">API key (optional)</label>
+  <input id="apiKey" type="password" autocomplete="off">
+  <small>Only needed if the server sets <code>ApiKey</code>.</small>
+
+  <label class="check">
+    <input id="fetchRawHeaders" type="checkbox">
+    <span>Read authentication headers<small>Fetches Gmail's "Show original" view for the open email so SPF, DKIM and DMARC can be checked. Only the header block is sent - never attachments.</small></span>
+  </label>
+
+  <button id="save">Save</button><span id="status"></span>
+  <script src="options.js"></script>
+</body>
+</html>
