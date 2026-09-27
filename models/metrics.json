@@ -1,0 +1,173 @@
+{
+  "trainedAt": "2026-09-27T18:21:46.4067552Z",
+  "dataset": {
+    "source": "Phishing Email Curated Datasets (Champa et al.), Zenodo, doi:10.5281/zenodo.8339691, CC BY 4.0",
+    "files": {
+      "Nazario.csv": {
+        "phishing": 1525,
+        "legitimate": 0
+      },
+      "Nazario_5.csv": {
+        "phishing": 0,
+        "legitimate": 1493
+      },
+      "SpamAssasin.csv": {
+        "phishing": 0,
+        "legitimate": 3758
+      }
+    },
+    "train": 5420,
+    "test": 1356
+  },
+  "selected": "words \u002B char-3grams \u002B SDCA logistic regression",
+  "candidates": [
+    {
+      "name": "words \u002B SDCA logistic regression",
+      "accuracy": 0.9919,
+      "precision": 0.9868,
+      "recall": 0.977,
+      "f1": 0.9819,
+      "auc": 0.9969,
+      "trainSeconds": 4.9
+    },
+    {
+      "name": "words \u002B L-BFGS logistic regression",
+      "accuracy": 0.9727,
+      "precision": 0.9963,
+      "recall": 0.882,
+      "f1": 0.9357,
+      "auc": 0.9968,
+      "trainSeconds": 0.9
+    },
+    {
+      "name": "words \u002B char-3grams \u002B SDCA logistic regression",
+      "accuracy": 0.9934,
+      "precision": 0.9837,
+      "recall": 0.9869,
+      "f1": 0.9853,
+      "auc": 0.9961,
+      "trainSeconds": 8.8
+    },
+    {
+      "name": "words \u002B char-3grams \u002B L-BFGS logistic regression",
+      "accuracy": 0.9823,
+      "precision": 0.993,
+      "recall": 0.9279,
+      "f1": 0.9593,
+      "auc": 0.9962,
+      "trainSeconds": 1.8
+    }
+  ],
+  "topPhishingTerms": [
+    "your",
+    "de",
+    "account",
+    "important",
+    "dear",
+    "view",
+    "your account",
+    "linkedin",
+    "payment",
+    "document",
+    "bank",
+    "en",
+    "update",
+    "incoming",
+    "intended",
+    "click",
+    "kindly",
+    "below",
+    "para",
+    "email",
+    "t\u043E",
+    "usaa",
+    "sie",
+    "\u003Cnumber\u003E px",
+    "please"
+  ],
+  "topLegitimateTerms": [
+    "the",
+    "list",
+    "that",
+    "of",
+    "at",
+    "perl",
+    "accomplishments",
+    "it",
+    "news",
+    "of the",
+    "mailing",
+    "as",
+    "in",
+    "on",
+    "they",
+    "mailing list",
+    "but",
+    "in the",
+    "me",
+    "up",
+    "handango",
+    "there",
+    "re",
+    "iso",
+    "submissionid"
+  ],
+  "probes": [
+    {
+      "Subject": "Your account has been suspended",
+      "probability": 0.9999,
+      "terms": [
+        "account",
+        "your",
+        "your account",
+        "dear",
+        "click",
+        "customer"
+      ]
+    },
+    {
+      "Subject": "Invoice #4821 overdue - action required",
+      "probability": 0.9996,
+      "terms": [
+        "document",
+        "payment",
+        "view",
+        "invoice",
+        "password",
+        "your"
+      ]
+    },
+    {
+      "Subject": "You have (1) pending package",
+      "probability": 0.9932,
+      "terms": [
+        "your",
+        "payment",
+        "parcel",
+        "pending",
+        "update",
+        "update your"
+      ]
+    },
+    {
+      "Subject": "Lunch tomorrow?",
+      "probability": 0.0292,
+      "terms": []
+    },
+    {
+      "Subject": "Minutes from Tuesday\u0027s sprint review",
+      "probability": 0.3545,
+      "terms": [
+        "update",
+        "action"
+      ]
+    },
+    {
+      "Subject": "Re: draft of chapter 3",
+      "probability": 0.0389,
+      "terms": [
+        "you have"
+      ]
+    }
+  ]
+}
