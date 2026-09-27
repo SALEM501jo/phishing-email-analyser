@@ -1,0 +1,90 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
+using PhishingAnalyser.Core.Content;
+
+namespace PhishingAnalyser.Tests;
+
+/// <summary>End-to-end through the real HTTP pipeline with the real trained model.</summary>
+public class ApiTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+{
+    private static readonly string ModelPath = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory, "..", "..", "..", "..", "..", "models", "phishing-content-model.zip"));
+
+    private HttpClient CreateClient() => factory
+        .WithWebHostBuilder(b => b.UseSetting("ContentModel:Path", ModelPath))
+        .CreateClient();
+
+    [Fact]
+    public async Task Health_reports_model_loaded()
+    {
+        var json = await CreateClient().GetFromJsonAsync<JsonElement>("/health");
+        Assert.True(json.GetProperty("contentModelLoaded").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Classic_phish_is_flagged()
+    {
+        var response = await CreateClient().PostAsJsonAsync("/api/v1/analyse", new
+        {
+            subject = "Action required: your account has been limited",
+            senderName = "PayPal Service",
+            senderEmail = "security-alert@paypa1-support.com",
+            body = "Dear customer, we noticed unusual activity on your account. Verify your information within 24 hours or your account will be permanently suspended. Click below to confirm your identity.",
+            links = new[] { new { text = "https://www.paypal.com/verify", href = "http://185.22.4.9/pp/login" } },
+        });
+
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("phishing", json.GetProperty("verdict").GetString());
+        Assert.True(json.GetProperty("score").GetDouble() > 0.9);
+        Assert.NotEmpty(json.GetProperty("reasons").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Ordinary_email_is_safe()
+    {
+        var response = await CreateClient().PostAsJsonAsync("/api/v1/analyse", new
+        {
+            subject = "Re: draft of chapter 3",
+            senderName = "Lina Haddad",
+            senderEmail = "lina.haddad@university.edu",
+            body = "Thanks for the comments. I reworked the second section and moved the table into the appendix. Can you take another look when you have time?",
+            links = new[] { new { text = "shared folder", href = "https://drive.google.com/drive/folders/abc" } },
+        });
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("safe", json.GetProperty("verdict").GetString());
+    }
+
+    [Fact]
+    public async Task Empty_request_is_rejected()
+    {
+        var response = await CreateClient().PostAsJsonAsync("/api/v1/analyse", new { });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Api_key_is_enforced_when_configured()
+    {
+        var client = factory.WithWebHostBuilder(b => b.UseSetting("ApiKey", "s3cret")).CreateClient();
+        var body = new { subject = "hello" };
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/v1/analyse", body)).StatusCode);
+
+        client.DefaultRequestHeaders.Add("X-Api-Key", "s3cret");
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/v1/analyse", body)).StatusCode);
+    }
+}
+
+public class ContentClassifierTests
+{
+    [Theory]
+    [InlineData("WordFeatures.verify|your", "verify your")]
+    [InlineData("WordFeatures.numtoken|hours", "<number> hours")]
+    [InlineData("CharFeatures.<␂>|p|a", null)]
+    [InlineData("WordFeatures.numtoken", null)]
+    public void Slot_names_become_readable_terms(string slot, string? expected) =>
+        Assert.Equal(expected, ContentClassifier.ToDisplayTerm(slot));
+}
