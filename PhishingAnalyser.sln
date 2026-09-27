@@ -1,0 +1,52 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{ED0397D7-E009-44B2-9E41-3B3C36C4155D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhishingAnalyser.Core", "src\PhishingAnalyser.Core\PhishingAnalyser.Core.csproj", "{313A5240-FDF6-406A-9AA9-B88300C69DD7}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{E2D13B24-4CCB-4BB7-9FF8-20483D5020C7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhishingAnalyser.Trainer", "tools\PhishingAnalyser.Trainer\PhishingAnalyser.Trainer.csproj", "{D3CAA0A9-04F0-4E7A-9115-C9654ABC6AEB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhishingAnalyser.Api", "src\PhishingAnalyser.Api\PhishingAnalyser.Api.csproj", "{45D6EE43-D5AD-471F-949C-2BC39F97914A}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{460AD847-53B7-4E6B-BC5D-05A066AD019B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhishingAnalyser.Tests", "tests\PhishingAnalyser.Tests\PhishingAnalyser.Tests.csproj", "{C05D6A3B-436A-42BB-8B8A-9B38BC5E5FE0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{313A5240-FDF6-406A-9AA9-B88300C69DD7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{313A5240-FDF6-406A-9AA9-B88300C69DD7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{313A5240-FDF6-406A-9AA9-B88300C69DD7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{313A5240-FDF6-406A-9AA9-B88300C69DD7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D3CAA0A9-04F0-4E7A-9115-C9654ABC6AEB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D3CAA0A9-04F0-4E7A-9115-C9654ABC6AEB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D3CAA0A9-04F0-4E7A-9115-C9654ABC6AEB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D3CAA0A9-04F0-4E7A-9115-C9654ABC6AEB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{45D6EE43-D5AD-471F-949C-2BC39F97914A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{45D6EE43-D5AD-471F-949C-2BC39F97914A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{45D6EE43-D5AD-471F-949C-2BC39F97914A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{45D6EE43-D5AD-471F-949C-2BC39F97914A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C05D6A3B-436A-42BB-8B8A-9B38BC5E5FE0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C05D6A3B-436A-42BB-8B8A-9B38BC5E5FE0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C05D6A3B-436A-42BB-8B8A-9B38BC5E5FE0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C05D6A3B-436A-42BB-8B8A-9B38BC5E5FE0}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{313A5240-FDF6-406A-9AA9-B88300C69DD7} = {ED0397D7-E009-44B2-9E41-3B3C36C4155D}
+		{D3CAA0A9-04F0-4E7A-9115-C9654ABC6AEB} = {E2D13B24-4CCB-4BB7-9FF8-20483D5020C7}
+		{45D6EE43-D5AD-471F-949C-2BC39F97914A} = {ED0397D7-E009-44B2-9E41-3B3C36C4155D}
+		{C05D6A3B-436A-42BB-8B8A-9B38BC5E5FE0} = {460AD847-53B7-4E6B-BC5D-05A066AD019B}
+	EndGlobalSection
+EndGlobal

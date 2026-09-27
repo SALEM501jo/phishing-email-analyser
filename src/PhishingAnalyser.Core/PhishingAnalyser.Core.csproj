@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PhishingAnalyser.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML" Version="4.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PhishingAnalyser.Tests" />
+  </ItemGroup>
+
+</Project>
