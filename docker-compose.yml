@@ -1,0 +1,20 @@
+# Runs next to the existing containers on the VPS. Bound to localhost only;
+# expose it through the reverse proxy (Caddy/nginx) that already terminates TLS on the box.
+services:
+  phishing-analyser:
+    image: ghcr.io/${GHCR_OWNER:-salemasad}/phishing-analyser:${TAG:-latest}
+    build: .
+    container_name: phishing-analyser
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5080:8080"
+    environment:
+      - ApiKey=${PHISHING_API_KEY:-}
+      - RateLimit__PerMinute=60
+    mem_limit: 384m
+    cpus: 0.5
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
