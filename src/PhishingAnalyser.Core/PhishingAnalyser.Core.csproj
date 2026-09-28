@@ -19,6 +19,7 @@
   <ItemGroup>
     <None Include="Data\brands.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Data\public_suffix_list.dat" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Data\rdap-dns.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -64,7 +64,8 @@ public sealed record AnalysisResult(
 public sealed record AnalysisBreakdown(
     ContentResult Content,
     ComponentResult Headers,
-    ComponentResult Links);
+    ComponentResult Links,
+    ComponentResult? Reputation = null);
 
 public static class Verdicts
 {

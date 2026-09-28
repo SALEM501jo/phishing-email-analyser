@@ -1,5 +1,6 @@
 using System.Globalization;
 using PhishingAnalyser.Core.Content;
+using PhishingAnalyser.Core.Reputation;
 using PhishingAnalyser.Core.Rules;
 
 namespace PhishingAnalyser.Core;
@@ -9,11 +10,22 @@ public sealed class EmailAnalyser(
     IContentClassifier classifier,
     HeaderAnalyser headerAnalyser,
     LinkAnalyser linkAnalyser,
-    ScoringOptions options)
+    ScoringOptions options,
+    ReputationAnalyser? reputationAnalyser = null)
 {
     private const int MaxReasons = 6;
 
-    public AnalysisResult Analyse(EmailSubmission email)
+    /// <summary>Full analysis including network reputation lookups (used by the API).</summary>
+    public async Task<AnalysisResult> AnalyseAsync(EmailSubmission email, CancellationToken ct = default)
+    {
+        var reputation = reputationAnalyser is null ? null : await reputationAnalyser.AnalyseAsync(email, ct);
+        return Analyse(email, reputation);
+    }
+
+    /// <summary>Offline analysis (text, sender, links) - also used by the trainer's evaluation, where reputation is meaningless for years-old mail.</summary>
+    public AnalysisResult Analyse(EmailSubmission email) => Analyse(email, null);
+
+    private AnalysisResult Analyse(EmailSubmission email, ComponentResult? reputation)
     {
         var content = classifier.Classify(email.Subject, email.Body);
         var headers = headerAnalyser.Analyse(email);
@@ -24,7 +36,7 @@ public sealed class EmailAnalyser(
             ? Languages.Arabic
             : Languages.English;
 
-        var score = Scoring.NoisyOr([ContentEvidence(content, options), headers.Score, links.Score]);
+        var score = Scoring.NoisyOr([ContentEvidence(content, options), headers.Score, links.Score, reputation?.Score ?? 0]);
 
         var verdict = score >= options.PhishingThreshold ? Verdicts.Phishing
             : score >= options.SuspiciousThreshold ? Verdicts.Suspicious
@@ -33,12 +45,13 @@ public sealed class EmailAnalyser(
         return new AnalysisResult(
             verdict,
             Math.Round(score, 3),
-            BuildReasons(content, headers, links, language),
+            BuildReasons(content, headers, links, reputation, language),
             new AnalysisBreakdown(
                 content with { Probability = Math.Round(content.Probability, 3), SpamProbability = Math.Round(content.SpamProbability, 3) },
                 headers with { Score = Math.Round(headers.Score, 3) },
-                links with { Score = Math.Round(links.Score, 3) }),
-            BuildLimitations(email, content, language),
+                links with { Score = Math.Round(links.Score, 3) },
+                reputation is null ? null : reputation with { Score = Math.Round(reputation.Score, 3) }),
+            BuildLimitations(email, content, reputation, language),
             classifier.Model?.Version,
             language);
     }
@@ -55,10 +68,11 @@ public sealed class EmailAnalyser(
         return weight * content.Probability;
     }
 
-    private static List<string> BuildReasons(ContentResult content, ComponentResult headers, ComponentResult links, string language)
+    private static List<string> BuildReasons(ContentResult content, ComponentResult headers, ComponentResult links, ComponentResult? reputation, string language)
     {
         var arabic = language == Languages.Arabic;
         var reasons = MergeSameDomain(headers.Findings, links.Findings)
+            .Concat(reputation?.Findings ?? [])
             .Where(f => f.Weight > 0)
             .Select(f => (f.Weight, Message: f.In(language)))
             .ToList();
@@ -122,10 +136,14 @@ public sealed class EmailAnalyser(
                 yield return l;
     }
 
-    private static List<string> BuildLimitations(EmailSubmission email, ContentResult content, string language)
+    private static List<string> BuildLimitations(EmailSubmission email, ContentResult content, ComponentResult? reputation, string language)
     {
         var arabic = language == Languages.Arabic;
         var limitations = new List<string>();
+        if (reputation is { Evaluated: false } && (email.Links?.Count > 0 || email.SenderEmail is not null))
+            limitations.Add(arabic
+                ? "لم يتم التحقق من سمعة النطاقات أو عمرها (الخدمات الخارجية غير متاحة حاليًا)."
+                : "Domain reputation and age were not checked (lookup services unavailable right now).");
         if (string.IsNullOrWhiteSpace(email.RawHeaders))
             limitations.Add(arabic
                 ? "لم يتم فحص SPF/DKIM/DMARC: لم تُرسل الترويسات الخام (صفحة Gmail لا تعرضها)."

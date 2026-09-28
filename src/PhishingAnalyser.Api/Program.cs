@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using PhishingAnalyser.Api;
 using PhishingAnalyser.Core;
 using PhishingAnalyser.Core.Content;
+using PhishingAnalyser.Core.Reputation;
 using PhishingAnalyser.Core.Rules;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,11 +24,38 @@ builder.Services.AddSingleton(sp =>
     builder.Configuration.GetSection("Scoring").Bind(options);
     return options;
 });
-builder.Services.AddSingleton(BrandCatalog.Default);
+builder.Services.AddSingleton(builder.Configuration["Brands:Path"] is { Length: > 0 } brandsPath
+    ? BrandCatalog.Load(brandsPath)
+    : BrandCatalog.Default);
 builder.Services.AddSingleton<HeaderAnalyser>();
 builder.Services.AddSingleton<LinkAnalyser>();
 builder.Services.AddSingleton<IContentClassifier>(sp => LoadClassifier(sp, builder.Configuration, builder.Environment));
-builder.Services.AddSingleton<EmailAnalyser>();
+
+// Reputation: domain age (RDAP), public threat feeds, optional Google Safe Browsing - see ReputationOptions.
+var reputationOptions = builder.Configuration.GetSection("Reputation").Get<ReputationOptions>() ?? new ReputationOptions();
+builder.Services.AddSingleton(reputationOptions);
+builder.Services.AddHttpClient("rdap", c => { c.Timeout = TimeSpan.FromSeconds(5); c.DefaultRequestHeaders.Accept.ParseAdd("application/rdap+json"); });
+builder.Services.AddHttpClient("feeds", c => c.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddHttpClient("safebrowsing", c => c.Timeout = TimeSpan.FromSeconds(5));
+builder.Services.AddSingleton<ThreatFeedStore>();
+builder.Services.AddHostedService<ThreatFeedRefresher>();
+builder.Services.AddSingleton(sp =>
+{
+    var http = sp.GetRequiredService<IHttpClientFactory>();
+    return new ReputationAnalyser(
+        sp.GetRequiredService<BrandCatalog>(),
+        reputationOptions,
+        sp.GetRequiredService<ThreatFeedStore>(),
+        reputationOptions.DomainAge ? new DomainAgeChecker(http.CreateClient("rdap")) : null,
+        string.IsNullOrWhiteSpace(reputationOptions.SafeBrowsingApiKey) ? null : new SafeBrowsingClient(http.CreateClient("safebrowsing"), reputationOptions.SafeBrowsingApiKey));
+});
+
+builder.Services.AddSingleton(sp => new EmailAnalyser(
+    sp.GetRequiredService<IContentClassifier>(),
+    sp.GetRequiredService<HeaderAnalyser>(),
+    sp.GetRequiredService<LinkAnalyser>(),
+    sp.GetRequiredService<ScoringOptions>(),
+    sp.GetRequiredService<ReputationAnalyser>()));
 
 builder.Services.AddRateLimiter(o =>
 {
@@ -64,15 +92,16 @@ app.MapGet("/health", () => Results.Ok(new
     contentModelLoaded = classifier.IsLoaded,
     model = classifier.Model,
     thresholds = new { app.Services.GetRequiredService<ScoringOptions>().PhishingThreshold, app.Services.GetRequiredService<ScoringOptions>().SuspiciousThreshold },
+    threatFeeds = new { urls = app.Services.GetRequiredService<ThreatFeedStore>().UrlCount, loadedAt = app.Services.GetRequiredService<ThreatFeedStore>().LoadedAt },
 }));
 
-app.MapPost("/api/v1/analyse", Results<Ok<AnalysisResult>, ValidationProblem> (
-        AnalyseRequest request, EmailAnalyser analyser, ILogger<Program> logger) =>
+app.MapPost("/api/v1/analyse", async Task<Results<Ok<AnalysisResult>, ValidationProblem>> (
+        AnalyseRequest request, EmailAnalyser analyser, ILogger<Program> logger, CancellationToken ct) =>
     {
         if (request.Validate() is { Count: > 0 } errors)
             return TypedResults.ValidationProblem(errors);
 
-        var result = analyser.Analyse(request.ToSubmission());
+        var result = await analyser.AnalyseAsync(request.ToSubmission(), ct);
 
         // Deliberately no email content in logs - only the outcome.
         logger.LogInformation("Analysed email: verdict={Verdict} score={Score} links={Links} rawHeaders={HasHeaders}",
