@@ -19,6 +19,8 @@ import random
 import re
 import sys
 import time
+
+import watchdog
 from pathlib import Path
 
 import requests
@@ -148,6 +150,7 @@ def main():
             plan.append((lang, i, brand, etype, rng.random() < 0.5))
 
     started, written = time.time(), 0
+    watchdog.start(limit_seconds=900)   # a lost laptop GPU hangs generation forever - fail loudly instead
     with OUT.open("a", encoding="utf-8") as out:
         for lang, i, (brand, domain, _), (etype, legit_desc, phish_desc), subtle in plan:
             pair_key = f"{lang}|{i}|{brand}|{etype}"
@@ -174,6 +177,7 @@ def main():
                        "senderName": email.get("sender_name"), "senderEmail": email.get("sender_email")}
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 out.flush()
+                watchdog.beat()
                 written += 1
                 if written % 20 == 0:
                     rate = written / (time.time() - started)

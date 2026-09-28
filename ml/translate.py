@@ -16,6 +16,8 @@ import json
 import random
 import re
 import time
+
+import watchdog
 from pathlib import Path
 
 import torch
@@ -96,6 +98,7 @@ def main():
         return tokenizer.batch_decode(out, skip_special_tokens=True)
 
     started = time.time()
+    watchdog.start(limit_seconds=600)   # a lost laptop GPU hangs CUDA forever - fail loudly instead
     with OUT.open("a", encoding="utf-8") as out:
         for start in range(0, len(todo), 8):
             group = todo[start:start + 8]
@@ -119,6 +122,7 @@ def main():
                 out.write(json.dumps({**row, "id": row["id"] + "-ar", "subject": subject_ar, "body": body_ar,
                                       "language": "ar", "source": row["source"] + " (translated)"}, ensure_ascii=False) + "\n")
             out.flush()
+            watchdog.beat()
             if (start // 8) % 25 == 0:
                 done_n = start + len(group)
                 print(f"{done_n}/{len(todo)} translated ({done_n / (time.time() - started) * 60:.0f}/min)", flush=True)
