@@ -24,7 +24,7 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "data" / "processed" / "corpus.jsonl"
 OUT = ROOT / "data" / "processed" / "corpus_ar.jsonl"
-MODEL = "facebook/nllb-200-distilled-600M"
+MODEL = r"G:\ml-cache\models\nllb-200-distilled-600M"  # facebook/nllb-200-distilled-600M, downloaded by setup-night.ps1
 
 URL_OR_EMAIL = re.compile(r"(https?://\S+|www\.\S+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+)")
 
