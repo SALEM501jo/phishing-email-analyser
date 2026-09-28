@@ -1,0 +1,52 @@
+name: Model check
+
+# Runs when a new model is published (models/manifest.json changes) or on demand.
+# Training itself runs off-CI (the corpus is several GB and the transformer needs a GPU - see kaggle/README.md);
+# this workflow proves the published binaries match the manifest, pass the full test suite (including the
+# .NET-vs-Python transformer parity tests), and records the model's metrics on the run page.
+
+on:
+  push:
+    branches: [main]
+    paths: ["models/manifest.json", "models/model-info.json", "models/metrics.json"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Verify & test published model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 8.0.x
+      - name: Fetch and verify model binaries
+        run: python3 scripts/models.py fetch && python3 scripts/models.py verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: dotnet test -c Release
+      - name: Metrics summary
+        run: |
+          python3 - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import json
+          m = json.load(open("models/manifest.json"))
+          print(f"## Model {m['version']}\n")
+          print(f"Release `{m['release']}` · trained {m['trainedAtUtc']} · published from commit `{m['publishedFromCommit'][:12]}`\n")
+          print("| file | size | sha256 |\n|---|---|---|")
+          for a in m["assets"]:
+              print(f"| {a['name']} | {a['size']/1e6:.1f} MB | `{a['sha256'][:16]}…` |")
+          print("\n| end-to-end (modern test split) | precision | recall | false-positive rate |\n|---|---|---|---|")
+          for name, v in (m.get("headlineMetrics") or {}).items():
+              if v:
+                  print(f"| {name} | {v['precision']:.1%} | {v['recall']:.1%} | {v['falsePositiveRate']:.2%} |")
+          EOF
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: model-metrics
+          path: |
+            models/manifest.json
+            models/model-info.json
+            models/metrics.json

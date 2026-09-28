@@ -8,7 +8,10 @@ TestResults/
 # Raw training corpora are large and redistributed under their own licence - download with tools/download-data.sh
 /data/
 
-# Trained model IS committed (models/) so the Docker build is reproducible without retraining.
+# Model binaries live in GitHub Releases (python scripts/models.py fetch); models/manifest.json pins them by SHA-256.
+# The small readable files (model-info.json, metrics.json, manifest.json) stay in git.
+/models/*.zip
+/models/transformer/
 
 # Local ML environment and logs
 ml/.venv/

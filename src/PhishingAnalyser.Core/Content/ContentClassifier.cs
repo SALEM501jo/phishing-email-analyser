@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.ML;
 using Microsoft.ML.Data;
 using Microsoft.ML.Trainers;
+using Microsoft.Extensions.ObjectPool;
 
 namespace PhishingAnalyser.Core.Content;
 
@@ -56,19 +57,22 @@ public sealed class ContentClassifier : IContentClassifier
         "that", "we", "our", "it", "be", "as", "at", "by", "with", "from", "de", "en", "me", "my", "i",
     ];
 
-    private readonly PredictionEngine<EmailTextInput, EmailTextPrediction> _engine;
+    // PredictionEngine is not thread-safe and costly to create, so requests borrow one from a pool
+    // (the same approach as Microsoft.Extensions.ML's PredictionEnginePool) instead of queuing behind a lock.
+    private readonly ObjectPool<PredictionEngine<EmailTextInput, EmailTextPrediction>> _engines;
     private readonly Dictionary<string, int> _classIndex;
     private readonly float[]? _phishingDirection; // per-feature weight towards "phishing" vs the other classes
     private readonly float[]? _legitimateDirection;
     private readonly string[] _slotNames;
-    private readonly object _gate = new(); // PredictionEngine is not thread-safe
 
     public bool IsLoaded => true;
     public ModelInfo? Model { get; }
 
     private ContentClassifier(MLContext ml, ITransformer model, DataViewSchema inputSchema, ModelInfo? info)
     {
-        _engine = ml.Model.CreatePredictionEngine<EmailTextInput, EmailTextPrediction>(model, inputSchema);
+        _engines = new DefaultObjectPool<PredictionEngine<EmailTextInput, EmailTextPrediction>>(
+            new EnginePolicy(() => ml.Model.CreatePredictionEngine<EmailTextInput, EmailTextPrediction>(model, inputSchema)),
+            maximumRetained: Environment.ProcessorCount * 2);
         var outputSchema = model.GetOutputSchema(inputSchema);
         _slotNames = ReadSlotNames(outputSchema["Features"]);
 
@@ -112,10 +116,7 @@ public sealed class ContentClassifier : IContentClassifier
         if (text.Length == 0)
             return ContentResult.NotEvaluated;
 
-        EmailTextPrediction prediction;
-        lock (_gate)
-            prediction = _engine.Predict(new EmailTextInput { Text = text });
-
+        var prediction = Predict(text);
         var language = LanguageHeuristics.Detect(text);
         var phishing = (double)prediction.Score[_classIndex[EmailClasses.Phishing]];
         if (Model?.Calibration is { } calibration)
@@ -133,10 +134,29 @@ public sealed class ContentClassifier : IContentClassifier
     /// <summary>Per-class probabilities, for the trainer's evaluation.</summary>
     public IReadOnlyDictionary<string, float> Probabilities(string normalizedText)
     {
-        EmailTextPrediction prediction;
-        lock (_gate)
-            prediction = _engine.Predict(new EmailTextInput { Text = normalizedText });
+        var prediction = Predict(normalizedText);
         return _classIndex.ToDictionary(kv => kv.Key, kv => prediction.Score[kv.Value]);
+    }
+
+    private EmailTextPrediction Predict(string text)
+    {
+        var engine = _engines.Get();
+        try
+        {
+            // A fresh output object per call, so the result stays valid after the engine goes back to the pool.
+            return engine.Predict(new EmailTextInput { Text = text });
+        }
+        finally
+        {
+            _engines.Return(engine);
+        }
+    }
+
+    private sealed class EnginePolicy(Func<PredictionEngine<EmailTextInput, EmailTextPrediction>> create)
+        : IPooledObjectPolicy<PredictionEngine<EmailTextInput, EmailTextPrediction>>
+    {
+        public PredictionEngine<EmailTextInput, EmailTextPrediction> Create() => create();
+        public bool Return(PredictionEngine<EmailTextInput, EmailTextPrediction> engine) => true;
     }
 
     /// <summary>Returns the word n-grams with the largest positive (phishing-ward) contribution.</summary>

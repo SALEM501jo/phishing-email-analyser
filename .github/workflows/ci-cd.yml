@@ -10,15 +10,22 @@ on:
 permissions:
   contents: read
 
+# Every action is pinned to a full commit SHA (tags can be moved by whoever controls the action's repo);
+# Dependabot keeps the pins up to date. The version is in the trailing comment.
+
 jobs:
   test:
     name: Build & test (.NET)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 8.0.x
+      - name: Fetch model binaries (GitHub Release, checksum-verified)
+        run: python3 scripts/models.py fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: dotnet restore
       - name: Fail on known-vulnerable NuGet packages (incl. transitive)
         run: |
@@ -26,7 +33,7 @@ jobs:
           ! grep -q "has the following vulnerable packages" vulnerable.txt
       - run: dotnet build --no-restore -c Release
       - run: dotnet test --no-build -c Release --logger "trx;LogFileName=results.trx" --results-directory TestResults
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: test-results
@@ -36,10 +43,10 @@ jobs:
     name: Lint & package extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 22
       - name: Syntax-check scripts and validate manifest
         run: |
           for f in extension/src/*.js extension/options.js; do node --check "$f"; done
@@ -49,16 +56,81 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm test
+      - name: Fail on known-vulnerable npm packages
+        working-directory: extension
+        run: npm audit --audit-level=high
       - name: Package (runtime files only - no tests, no node_modules)
         run: cd extension && zip -r ../phishing-analyser-extension.zip manifest.json options.html options.js src vendor icons -x '*.DS_Store'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: chrome-extension
           path: phishing-analyser-extension.zip
 
+  image-scan:
+    name: Image scan (Trivy) & SBOM
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # SARIF upload (public repos; code scanning isn't available on free private repos)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 scripts/models.py fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image locally (not pushed)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: phishing-analyser:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Trivy - fail on fixable HIGH/CRITICAL vulnerabilities, secrets or misconfigurations
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: phishing-analyser:scan
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      - name: Trivy - full report as SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: phishing-analyser:scan
+          format: sarif
+          output: trivy.sarif
+          skip-setup-trivy: true
+      - name: SBOM (SPDX) of the image
+        if: always()
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: phishing-analyser:scan
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            trivy.sarif
+            sbom.spdx.json
+      - name: Publish Trivy findings to GitHub code scanning
+        if: always() && !github.event.repository.private
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
   image:
     name: Build & push Docker image
-    needs: [test]
+    needs: [test, image-scan]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -67,27 +139,32 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 scripts/models.py fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/phishing-analyser
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
             type=semver,pattern={{version}}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true                 # SBOM + provenance attached to the image in the registry
+          provenance: mode=max
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -101,7 +178,7 @@ jobs:
     permissions:
       packages: read
     steps:
-      - uses: appleboy/ssh-action@v1.2.0
+      - uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -112,6 +189,7 @@ jobs:
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             export GHCR_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
             docker compose pull phishing-analyser
-            docker compose up -d phishing-analyser
+            # --wait blocks until the container's HEALTHCHECK reports healthy (fails the deploy otherwise)
+            docker compose up -d --wait --wait-timeout 120 phishing-analyser
             docker image prune -f
-            sleep 5 && curl -fsS http://127.0.0.1:5080/health
+            curl -fsS http://127.0.0.1:5080/health

@@ -1,0 +1,37 @@
+# Weekly dependency updates, grouped so each ecosystem is one PR. Security updates arrive as soon as advisories do.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      nuget: { patterns: ["*"] }
+    ignore:
+      # Stay on the .NET 8 (LTS) line until the whole solution moves to a newer runtime.
+      - dependency-name: "Microsoft.*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: npm
+    directory: /extension
+    schedule: { interval: weekly }
+    groups:
+      npm: { patterns: ["*"] }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "dotnet/*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: pip
+    directory: /ml
+    schedule: { interval: monthly }
+    groups:
+      ml: { patterns: ["*"] }

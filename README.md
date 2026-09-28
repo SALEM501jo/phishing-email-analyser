@@ -132,43 +132,59 @@ The extension reads the rendered Gmail DOM instead of calling the Gmail API. Thi
 - The API never logs email content, only the verdict, score and counts.
 - Only the service worker calls the API, so the API key never touches Gmail's page. Messages are accepted only from `mail.google.com` tabs.
 - The banner lives in a **closed shadow root** and uses `textContent` only. Email-derived strings are never parsed as HTML.
-- Requests are capped at 512 KB, and fields are validated and length-limited. The API has per-IP rate limiting, an optional `X-Api-Key` compared in constant time, and forwarded headers trusted only from the local proxy.
-- The container is read-only, runs as a non-root user with `no-new-privileges`, is limited to 384 MB and ½ CPU, and binds to 127.0.0.1 behind the existing reverse proxy.
+- Requests are capped at 512 KB, and fields are validated and length-limited.
+- **Per-install API keys.** Each extension install gets its own key (`--new-api-key <name>`). The server stores only SHA-256 hashes and compares against every entry in constant time. One leaked key can be revoked without touching the others, and logs name the client, never the key. This identifies an *installation*, not a person; a multi-user service would add real sign-in (Google OAuth via `chrome.identity` → a short-lived JWT).
+- **Rate limits per client**, or per real client IP without keys. `X-Forwarded-For` is honoured only from the configured proxy address (the Docker bridge gateway in `docker-compose.yml`) with `ForwardLimit = 1`, so clients can't spoof their way into another bucket.
+- The container is read-only, runs as a non-root user with `no-new-privileges`, is limited to 384 MB and ½ CPU, and binds to 127.0.0.1 behind the existing reverse proxy. A `HEALTHCHECK` (the API binary probing its own `/health`; the image has no curl) lets `docker compose up --wait` gate deploys.
+- **Metrics** (OpenTelemetry → Prometheus) on a separate internal port 9464 that is never proxied: verdict and language counts, analysis latency, feedback, rejected keys, plus ASP.NET Core, rate-limiter and runtime metrics. Counts only, no content. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also push to a collector.
+- **Throughput.** ML.NET's `PredictionEngine` isn't thread-safe, so requests borrow engines from an object pool (the same approach as `PredictionEnginePool`) instead of queueing behind a lock. The ONNX transformer session is thread-safe as is.
 
 ## Running locally
 
 ```bash
-dotnet test                                                     # 149 tests: rules, Arabic, reputation (fake HTTP), SSRF guard, end-to-end API
+python scripts/models.py fetch                                  # model binaries from the GitHub Release, SHA-256 verified
+dotnet test                                                     # 162 tests: rules, Arabic, reputation (fake HTTP), SSRF guard, API security, end-to-end
 dotnet run --project src/PhishingAnalyser.Api --launch-profile http   # http://localhost:5080/swagger
 ```
 
 Load the extension: go to `chrome://extensions`, turn on Developer mode, click **Load unpacked** and choose `extension/`, then open any Gmail message.
 
-Retrain (optional; the trained model is committed in `models/`). This needs ~1 GB of data and ~8 minutes:
+Retrain (optional). This needs ~1 GB of data and ~8 minutes:
 ```bash
 ./tools/download-data.sh
 dotnet run --project tools/PhishingAnalyser.Trainer -c Release   # writes the model .zip, model-info.json and metrics.json to models/
+python scripts/models.py publish                                 # release "model-<version>" + updated models/manifest.json
 ```
+
+**Model binaries aren't in git.** They're GitHub Release assets, and `models/manifest.json` (committed) pins the release, each file's SHA-256 and size, the commit it was published from, and headline metrics. `fetch` refuses a file whose checksum doesn't match. The readable `model-info.json` and `metrics.json` stay in git, so a model change shows up as a reviewable diff.
 
 ## CI/CD & deployment
 
 `.github/workflows/ci-cd.yml` runs these jobs:
-1. **test**: restore, build and test on every push and PR.
-2. **extension**: syntax-check the JS, validate the MV3 manifest, and publish the packaged `.zip` as a build artifact.
-3. **image**: on `main` or tags, build the Docker image and push it to `ghcr.io/<owner>/phishing-analyser` (tags `latest`, `sha-xxxx`, semver).
-4. **deploy**: SSH to the VPS and run `docker compose pull && up -d`, then health-check. This job is opt-in, so add the following first:
+1. **test**: fetch the model, restore, fail on known-vulnerable NuGet packages, build and test on every push and PR.
+2. **extension**: syntax-check the JS, run the Vitest tests, `npm audit`, validate the MV3 manifest, and publish the packaged `.zip` as a build artifact.
+3. **image-scan**: build the image and scan it with **Trivy** (fails on fixable HIGH/CRITICAL vulnerabilities, secrets or misconfigurations). Also generates an **SPDX SBOM**. Both are kept as build artifacts.
+4. **image**: on `main` or tags, push to `ghcr.io/<owner>/phishing-analyser` (tags `latest`, `sha-xxxx`, semver) with SBOM and provenance attestations attached.
+5. **deploy**: SSH to the VPS and run `docker compose pull && up -d --wait`, which fails unless the container becomes healthy. This job is opt-in, so add the following first:
    - repository variable `DEPLOY_ENABLED=true`
    - secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
    - optional variable `VPS_APP_DIR`, the folder holding `docker-compose.yml` on the server
 
-On the VPS, put `docker-compose.yml` in that folder, optionally set `PHISHING_API_KEY` in a `.env` next to it, and add a reverse-proxy route such as Caddy's `phishing.example.com { reverse_proxy 127.0.0.1:5080 }`.
+On the VPS, put `docker-compose.yml` in that folder and add a reverse-proxy route such as Caddy's `phishing.example.com { reverse_proxy 127.0.0.1:5080 }`. Create a key per extension install with `docker run --rm ghcr.io/salem501jo/phishing-analyser --new-api-key laptop`. Paste the key into the extension's options, and put the printed hash into a `.env` next to the compose file as `API_CLIENT_0_NAME` / `API_CLIENT_0_SHA256`.
+
+Other workflows:
+- **`security.yml`**: **gitleaks** over the full git history on every push and weekly, and **CodeQL** (C#, JS, Python, workflow files, `security-extended` queries). CodeQL runs only while the repository is public, because GitHub code scanning is free only for public repos.
+- **`model.yml`**: when a new model is published, it fetches and verifies the release, runs all tests against it (including .NET-vs-Python transformer parity), and writes the metrics to the run summary. Training itself stays off CI, because the corpus is several GB and the transformer needs a GPU.
+- **Dependabot** (`.github/dependabot.yml`): weekly grouped updates for NuGet, npm, GitHub Actions and the Docker base image, plus monthly updates for the ML Python pins.
+- Every action is **pinned to a commit SHA**, not a movable tag, and Dependabot keeps the pins current.
 
 ## Project layout
 ```
 src/PhishingAnalyser.Core     analysers, brand catalogue, ML pipeline + classifier, scoring
-src/PhishingAnalyser.Api      minimal API, validation, rate limiting, API key
+src/PhishingAnalyser.Api      minimal API, validation, per-client keys + rate limits, metrics
 tools/PhishingAnalyser.Trainer  corpus loading/cleaning, model comparison, metrics.json
 tests/PhishingAnalyser.Tests  xUnit: rules, scoring, WebApplicationFactory end-to-end
 extension/                    Chrome MV3 extension
-models/                       trained model + metrics
+models/                       model-info, metrics, manifest (binaries: GitHub Release)
+scripts/models.py             fetch / verify / publish model releases
 ```

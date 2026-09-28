@@ -1,12 +1,27 @@
-using System.Security.Cryptography;
-using System.Text;
+using System.Diagnostics;
+using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.HttpOverrides;
+using OpenTelemetry.Metrics;
 using PhishingAnalyser.Api;
 using PhishingAnalyser.Core;
 using PhishingAnalyser.Core.Content;
 using PhishingAnalyser.Core.Reputation;
 using PhishingAnalyser.Core.Rules;
+
+// Small command-line utilities that share the binary (no web host is started for these).
+if (args is ["--healthcheck", ..])
+    return await HealthProbe(args.Length > 1 ? args[1] : "http://127.0.0.1:8080/health");
+if (args is ["--new-api-key", var clientName])
+{
+    var (key, hash) = ApiClients.NewKey();
+    Console.WriteLine($"Key for the extension (shown once, store it there): {key}");
+    Console.WriteLine("Server settings (environment variables, N = next free index):");
+    Console.WriteLine($"  ApiClients__N__Name={clientName}");
+    Console.WriteLine($"  ApiClients__N__KeySha256={hash}");
+    return 0;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -69,11 +84,45 @@ builder.Services.AddSingleton(sp =>
     return new FeedbackStore(Path.IsPathRooted(configured) ? configured : Path.Combine(builder.Environment.ContentRootPath, configured));
 });
 
+// Per-client API keys (hashes in config); see ApiClients.
+var apiClients = new ApiClients(
+    builder.Configuration.GetSection("ApiClients").Get<List<ApiClientOptions>>() ?? [],
+    builder.Configuration["ApiKey"]);
+builder.Services.AddSingleton(apiClients);
+
+// The reverse proxy's X-Forwarded-For is honoured only when the request comes from a configured proxy address.
+// Behind Docker the proxy connects from the bridge gateway, not loopback - docker-compose.yml sets it.
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    o.ForwardLimit = 1; // only the address our own proxy appended; anything further left is client-controlled
+    foreach (var proxy in builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
+        o.KnownProxies.Add(IPAddress.Parse(proxy));
+    foreach (var network in builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [])
+        o.KnownNetworks.Add(ParseNetwork(network));
+});
+
+builder.Services.AddSingleton<Telemetry>();
+builder.Services.AddOpenTelemetry().WithMetrics(m =>
+{
+    m.AddMeter(Telemetry.MeterName, "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "Microsoft.AspNetCore.RateLimiting")
+     .AddView("phishing.analysis.duration", new ExplicitBucketHistogramConfiguration
+     {
+         Boundaries = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5], // seconds; the default buckets start at 5 s
+     })
+     .AddRuntimeInstrumentation()
+     .AddPrometheusExporter();
+    if (!string.IsNullOrEmpty(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+        m.AddOtlpExporter(); // optional push to an OpenTelemetry collector
+});
+var metricsPort = builder.Configuration.GetValue("Metrics:Port", 9464);
+
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    // One bucket per API client when keys are in use, otherwise per client IP (as reported by the trusted proxy).
     o.AddPolicy("analyse", ctx => RateLimitPartition.GetFixedWindowLimiter(
-        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        ctx.Items[ApiClients.ItemKey] is string client ? $"client:{client}" : $"ip:{ctx.Connection.RemoteIpAddress}",
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = builder.Configuration.GetValue("RateLimit:PerMinute", 60),
@@ -92,8 +141,18 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseForwardedHeaders(new() { ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor });
+app.UseForwardedHeaders();
+// Identify the API client before rate limiting, so the limiter can partition by client.
+app.Use((ctx, next) =>
+{
+    if (apiClients.Enabled && apiClients.Identify(ctx.Request.Headers[ApiClients.HeaderName]) is { } client)
+        ctx.Items[ApiClients.ItemKey] = client;
+    return next(ctx);
+});
 app.UseRateLimiter();
+
+// Prometheus metrics only on the internal port - docker-compose doesn't publish it to the proxy.
+app.MapPrometheusScrapingEndpoint().RequireHost($"*:{metricsPort}");
 
 // Warm the model at startup so the first request isn't slow and a broken model fails loudly in the logs.
 var classifier = app.Services.GetRequiredService<IContentClassifier>();
@@ -108,41 +167,45 @@ app.MapGet("/health", () => Results.Ok(new
 }));
 
 app.MapPost("/api/v1/analyse", async Task<Results<Ok<AnalysisResult>, ValidationProblem>> (
-        AnalyseRequest request, EmailAnalyser analyser, ILogger<Program> logger, CancellationToken ct) =>
+        AnalyseRequest request, EmailAnalyser analyser, Telemetry telemetry, HttpContext http, ILogger<Program> logger, CancellationToken ct) =>
     {
         if (request.Validate() is { Count: > 0 } errors)
             return TypedResults.ValidationProblem(errors);
 
+        var started = Stopwatch.GetTimestamp();
         var result = await analyser.AnalyseAsync(request.ToSubmission(), ct);
+        telemetry.Analysed(result, Stopwatch.GetElapsedTime(started));
 
-        // Deliberately no email content in logs - only the outcome.
-        logger.LogInformation("Analysed email: verdict={Verdict} score={Score} links={Links} rawHeaders={HasHeaders}",
-            result.Verdict, result.Score, request.Links?.Count ?? 0, !string.IsNullOrEmpty(request.RawHeaders));
+        // Deliberately no email content in logs - only the outcome and which client asked.
+        logger.LogInformation("Analysed email: client={Client} verdict={Verdict} score={Score} links={Links} rawHeaders={HasHeaders}",
+            http.Items[ApiClients.ItemKey] ?? "-", result.Verdict, result.Score, request.Links?.Count ?? 0, !string.IsNullOrEmpty(request.RawHeaders));
 
         return TypedResults.Ok(result);
     })
-    .AddEndpointFilter(RequireApiKey(app.Configuration["ApiKey"]))
+    .AddEndpointFilter(RequireApiKey)
     .RequireRateLimiting("analyse")
     .WithName("AnalyseEmail");
 
-app.MapPost("/api/v1/feedback", Results<NoContent, ValidationProblem> (FeedbackRequest request, FeedbackStore store, ILogger<Program> logger) =>
+app.MapPost("/api/v1/feedback", Results<NoContent, ValidationProblem> (FeedbackRequest request, FeedbackStore store, Telemetry telemetry, ILogger<Program> logger) =>
     {
         if (request.Validate() is { Count: > 0 } errors)
             return TypedResults.ValidationProblem(errors);
         store.Add(request);
+        telemetry.Feedback(request.Verdict!, request.Correct);
         logger.LogInformation("Feedback: verdict={Verdict} correct={Correct} withEmail={WithEmail}", request.Verdict, request.Correct, request.Email is not null);
         return TypedResults.NoContent();
     })
-    .AddEndpointFilter(RequireApiKey(app.Configuration["ApiKey"]))
+    .AddEndpointFilter(RequireApiKey)
     .RequireRateLimiting("analyse")
     .WithName("SubmitFeedback");
 
 // Error rates per verdict (counts only, no content).
 app.MapGet("/api/v1/feedback/summary", (FeedbackStore store) => Results.Ok(store.Summary()))
-    .AddEndpointFilter(RequireApiKey(app.Configuration["ApiKey"]))
+    .AddEndpointFilter(RequireApiKey)
     .WithName("FeedbackSummary");
 
-app.Run();
+await app.RunAsync();
+return 0;
 
 static IContentClassifier LoadClassifier(IServiceProvider sp, IConfiguration config, IHostEnvironment env)
 {
@@ -172,16 +235,37 @@ static IContentClassifier LoadClassifier(IServiceProvider sp, IConfiguration con
     return linear;
 }
 
-// Optional shared-secret check so a publicly reachable demo instance isn't an open endpoint.
-static Func<EndpointFilterInvocationContext, EndpointFilterDelegate, ValueTask<object?>> RequireApiKey(string? apiKey) =>
-    async (ctx, next) =>
-    {
-        if (string.IsNullOrEmpty(apiKey))
-            return await next(ctx);
+// When any API keys are configured, the endpoint needs one (identified by the middleware above).
+static async ValueTask<object?> RequireApiKey(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
+{
+    var http = ctx.HttpContext;
+    if (!http.RequestServices.GetRequiredService<ApiClients>().Enabled || http.Items.ContainsKey(ApiClients.ItemKey))
+        return await next(ctx);
+    http.RequestServices.GetRequiredService<Telemetry>().RejectedKey();
+    return Results.Unauthorized();
+}
 
-        var supplied = ctx.HttpContext.Request.Headers["X-Api-Key"].ToString();
-        var ok = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(apiKey));
-        return ok ? await next(ctx) : Results.Unauthorized();
-    };
+static Microsoft.AspNetCore.HttpOverrides.IPNetwork ParseNetwork(string cidr)
+{
+    var parts = cidr.Split('/', 2);
+    var address = IPAddress.Parse(parts[0]);
+    var prefix = parts.Length == 2 ? int.Parse(parts[1]) : address.GetAddressBytes().Length * 8;
+    return new Microsoft.AspNetCore.HttpOverrides.IPNetwork(address, prefix);
+}
+
+// Docker HEALTHCHECK probe: the runtime image has no curl, so the API binary checks itself.
+static async Task<int> HealthProbe(string url)
+{
+    try
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        using var response = await http.GetAsync(url);
+        return response.IsSuccessStatusCode ? 0 : 1;
+    }
+    catch (Exception)
+    {
+        return 1;
+    }
+}
 
 public partial class Program;

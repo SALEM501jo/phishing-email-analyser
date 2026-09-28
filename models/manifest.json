@@ -1,0 +1,26 @@
+{
+  "release": "model-2026.09.28-33aa49bb",
+  "version": "2026.09.28-33aa49bb",
+  "trainedAtUtc": "2026-09-28T00:02:25.115313Z",
+  "publishedAtUtc": "2026-09-28T23:22:42+00:00",
+  "publishedFromCommit": "b0bd4282feaaf98992ceb73329192ec6b1258147",
+  "assets": [
+    {
+      "name": "phishing-content-model.zip",
+      "size": 16216161,
+      "sha256": "33aa49bbbed0e78c7667e36535320e6ec97acae035378c043d6be3a18cdcd96f"
+    }
+  ],
+  "headlineMetrics": {
+    "phishingVerdict": {
+      "precision": 0.9716,
+      "recall": 0.6259,
+      "falsePositiveRate": 0.003
+    },
+    "anyWarning": {
+      "precision": 0.9395,
+      "recall": 0.7862,
+      "falsePositiveRate": 0.0083
+    }
+  }
+}

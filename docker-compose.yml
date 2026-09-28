@@ -7,10 +7,24 @@ services:
     container_name: phishing-analyser
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5080:8080"
+      - "127.0.0.1:5080:8080"   # API, for the reverse proxy
+      - "127.0.0.1:9464:9464"   # Prometheus metrics, host-local only (never proxied)
     environment:
-      - ApiKey=${PHISHING_API_KEY:-}
+      # Per-install API keys: generate with
+      #   docker run --rm ghcr.io/salem501jo/phishing-analyser --new-api-key <name>
+      # and put the printed hash lines in .env (ApiClients__0__Name / ApiClients__0__KeySha256, ...).
+      - ApiClients__0__Name=${API_CLIENT_0_NAME:-}
+      - ApiClients__0__KeySha256=${API_CLIENT_0_SHA256:-}
+      - ApiClients__1__Name=${API_CLIENT_1_NAME:-}
+      - ApiClients__1__KeySha256=${API_CLIENT_1_SHA256:-}
+      - ApiKey=${PHISHING_API_KEY:-}   # legacy single shared key, still accepted
       - RateLimit__PerMinute=60
+      # A host proxy reaches the container through the bridge gateway (below), not loopback. Only that address
+      # may set X-Forwarded-For, so rate limits apply per real client. If the proxy is itself a container,
+      # put its address here instead.
+      - ForwardedHeaders__KnownProxies__0=172.30.57.1
+    networks:
+      - analyser
     mem_limit: 384m
     cpus: 0.5
     read_only: true
@@ -20,6 +34,13 @@ services:
       - feedback-data:/app/data   # the only writable path: 👍/👎 feedback (SQLite)
     security_opt:
       - no-new-privileges:true
+    # Health check comes from the image (Dockerfile HEALTHCHECK); `docker compose up --wait` waits for it.
+
+networks:
+  analyser:
+    ipam:
+      config:
+        - subnet: 172.30.57.0/24   # fixed, so the gateway address above is predictable
 
 volumes:
   feedback-data:

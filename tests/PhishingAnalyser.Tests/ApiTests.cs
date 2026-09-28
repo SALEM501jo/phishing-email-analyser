@@ -98,6 +98,25 @@ public class ApiTests(WebApplicationFactory<Program> factory) : IClassFixture<We
 
 public class ContentClassifierTests
 {
+    [Fact]
+    public void Concurrent_requests_get_the_same_answers_as_sequential_ones()
+    {
+        var classifier = ContentClassifier.Load(Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "models", "phishing-content-model.zip")));
+        var emails = Enumerable.Range(0, 64)
+            .Select(i => i % 2 == 0
+                ? ($"Your account {i} is suspended", "Verify your password within 24 hours or lose access.")
+                : ($"Minutes of meeting {i}", "Attached are the notes from Tuesday. Let me know if I missed anything."))
+            .ToArray();
+
+        var sequential = emails.Select(e => classifier.Classify(e.Item1, e.Item2).Probability).ToArray();
+        var parallel = new double[emails.Length];
+        Parallel.For(0, emails.Length, new ParallelOptions { MaxDegreeOfParallelism = 16 },
+            i => parallel[i] = classifier.Classify(emails[i].Item1, emails[i].Item2).Probability);
+
+        Assert.Equal(sequential, parallel);
+    }
+
     [Theory]
     [InlineData("WordFeatures.verify|your", "verify your")]
     [InlineData("WordFeatures.numtoken|hours", "<number> hours")]
