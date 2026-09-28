@@ -11,25 +11,39 @@ public sealed class EmailAnalyser(
     HeaderAnalyser headerAnalyser,
     LinkAnalyser linkAnalyser,
     ScoringOptions options,
-    ReputationAnalyser? reputationAnalyser = null)
+    ReputationAnalyser? reputationAnalyser = null,
+    ShortLinkExpander? shortLinks = null)
 {
     private const int MaxReasons = 6;
 
     /// <summary>Full analysis including network reputation lookups (used by the API).</summary>
     public async Task<AnalysisResult> AnalyseAsync(EmailSubmission email, CancellationToken ct = default)
     {
+        // Expand shortened links first, so their real destinations go through the link AND reputation checks.
+        var expanded = shortLinks is null || email.Links is not { Count: > 0 } ? [] : await shortLinks.ExpandAsync(email.Links, ct);
+        if (expanded.Count > 0)
+            // No link text: the short URL as "text" would falsely trip the text-vs-destination mismatch rule.
+            email = WithLinks(email, [.. email.Links!, .. expanded.Select(e => new EmailLink(null, e.Destination))]);
+
         var reputation = reputationAnalyser is null ? null : await reputationAnalyser.AnalyseAsync(email, ct);
-        return Analyse(email, reputation);
+        return Analyse(email, reputation, expanded);
     }
 
     /// <summary>Offline analysis (text, sender, links) - also used by the trainer's evaluation, where reputation is meaningless for years-old mail.</summary>
-    public AnalysisResult Analyse(EmailSubmission email) => Analyse(email, null);
+    public AnalysisResult Analyse(EmailSubmission email) => Analyse(email, null, []);
 
-    private AnalysisResult Analyse(EmailSubmission email, ComponentResult? reputation)
+    private AnalysisResult Analyse(EmailSubmission email, ComponentResult? reputation, IReadOnlyList<ExpandedLink> expanded)
     {
         var content = classifier.Classify(email.Subject, email.Body);
         var headers = headerAnalyser.Analyse(email);
         var links = linkAnalyser.Analyse(email.Links);
+        if (expanded.Count > 0)
+            links = links with
+            {
+                Findings = [.. links.Findings, .. expanded.Select(e => new Finding(LinkAnalyser.Source, "shortener-expanded",
+                    $"Shortened link {e.ShortUrl} really leads to {DomainUtils.GetHost(e.Destination)}", 0,
+                    $"الرابط المختصر {e.ShortUrl} يؤدي فعليًا إلى {DomainUtils.GetHost(e.Destination)}"))],
+            };
 
         // The UI language follows the email, independent of whether a model is loaded.
         var language = LanguageHeuristics.Detect(EmailTextNormalizer.Normalize(email.Subject, email.Body)) == Languages.Arabic
@@ -102,8 +116,8 @@ public sealed class EmailAnalyser(
             }
         }
 
-        // Positive evidence (e.g. "SPF, DKIM and DMARC all passed") goes last.
-        reasons.AddRange(headers.Findings.Where(f => f.Weight == 0).Select(f => (0.0, f.In(language))));
+        // Context and positive evidence (where short links lead; "SPF, DKIM and DMARC all passed") go last.
+        reasons.AddRange(links.Findings.Concat(headers.Findings).Where(f => f.Weight == 0).Select(f => (0.0, f.In(language))));
 
         return reasons
             .OrderByDescending(r => r.Weight)
@@ -112,6 +126,12 @@ public sealed class EmailAnalyser(
             .Take(MaxReasons)
             .ToList();
     }
+
+    private static EmailSubmission WithLinks(EmailSubmission e, IReadOnlyList<EmailLink> links) => new()
+    {
+        Subject = e.Subject, SenderName = e.SenderName, SenderEmail = e.SenderEmail, ReplyTo = e.ReplyTo,
+        Body = e.Body, RawHeaders = e.RawHeaders, Links = links,
+    };
 
     /// <summary>
     /// When the sender and the links use the same look-alike domain, say it once ("... - the links use the same

@@ -9,6 +9,8 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
     public const string Source = "links";
     private const int MaxLinks = 200;
 
+    public static bool IsShortener(string host) => Shorteners.Contains(host);
+
     private static readonly HashSet<string> Shorteners = new(StringComparer.OrdinalIgnoreCase)
     {
         "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly", "rebrand.ly", "cutt.ly",

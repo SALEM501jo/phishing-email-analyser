@@ -37,6 +37,10 @@ builder.Services.AddSingleton(reputationOptions);
 builder.Services.AddHttpClient("rdap", c => { c.Timeout = TimeSpan.FromSeconds(5); c.DefaultRequestHeaders.Accept.ParseAdd("application/rdap+json"); });
 builder.Services.AddHttpClient("feeds", c => c.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddHttpClient("safebrowsing", c => c.Timeout = TimeSpan.FromSeconds(5));
+// Short-link expansion: no auto-redirects + connect-time block of internal addresses (SSRF guard).
+builder.Services.AddHttpClient("shortlinks", c => c.Timeout = TimeSpan.FromSeconds(3))
+    .ConfigurePrimaryHttpMessageHandler(ShortLinkExpander.CreateSafeHandler);
+builder.Services.AddSingleton(sp => new ShortLinkExpander(sp.GetRequiredService<IHttpClientFactory>().CreateClient("shortlinks")));
 builder.Services.AddSingleton<ThreatFeedStore>();
 builder.Services.AddHostedService<ThreatFeedRefresher>();
 builder.Services.AddSingleton(sp =>
@@ -55,7 +59,8 @@ builder.Services.AddSingleton(sp => new EmailAnalyser(
     sp.GetRequiredService<HeaderAnalyser>(),
     sp.GetRequiredService<LinkAnalyser>(),
     sp.GetRequiredService<ScoringOptions>(),
-    sp.GetRequiredService<ReputationAnalyser>()));
+    sp.GetRequiredService<ReputationAnalyser>(),
+    reputationOptions.Enabled && builder.Configuration.GetValue("Reputation:ExpandShortLinks", true) ? sp.GetRequiredService<ShortLinkExpander>() : null));
 
 builder.Services.AddRateLimiter(o =>
 {
