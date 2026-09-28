@@ -50,6 +50,8 @@ $env:HF_HOME = "$cache\huggingface"
 $env:TMP = "$cache\tmp"; $env:TEMP = "$cache\tmp"
 $env:OLLAMA_MODELS = "$cache\ollama"
 $env:PYTHONUNBUFFERED = "1"
+# Thermal guard (pauses when the CPU/GPU get hot) switched off at the owner's request; set to "on" to re-enable.
+$env:ML_THERMAL_GUARD = "off"
 $env:PYTHONIOENCODING = "utf-8"
 # Persist the two model-location variables for your user so the Ollama app and later scripts use G: too.
 [Environment]::SetEnvironmentVariable("OLLAMA_MODELS", "$cache\ollama", "User")

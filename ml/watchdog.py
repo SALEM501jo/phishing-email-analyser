@@ -84,6 +84,9 @@ GPU_PAUSE, GPU_RESUME = int(os.environ.get("ML_GPU_MAX", 75)), int(os.environ.ge
 CPU_PAUSE, CPU_RESUME = int(os.environ.get("ML_CPU_MAX", 82)), int(os.environ.get("ML_CPU_RESUME", 72))
 
 
+THERMAL_GUARD_OFF = os.environ.get("ML_THERMAL_GUARD", "on").lower() == "off"
+
+
 def _too_hot(gpu, cpu, gpu_limit, cpu_limit):
     return (gpu is not None and gpu >= gpu_limit) or (cpu is not None and cpu >= cpu_limit)
 
@@ -94,7 +97,10 @@ def cool_down(breather=1.0):
     ("GPU is lost"); a job that pauses when hot finishes more slowly but finishes. Call between batches.
     Pauses when the GPU or CPU passes its limit and resumes only when BOTH are back under their resume points
     (the CPU and GPU share one cooler in a laptop). A short breather after every batch lowers the average heat.
+    Switched off entirely with ML_THERMAL_GUARD=off (full speed; the stall watchdog stays active).
     """
+    if THERMAL_GUARD_OFF:
+        return
     time.sleep(breather)
     gpu, cpu = gpu_temperature(), cpu_temperature()
     if not _too_hot(gpu, cpu, GPU_PAUSE, CPU_PAUSE):
@@ -116,8 +122,11 @@ def beat():
 
 
 def start(limit_seconds=600):
-    print(f"thermal guard: GPU pause {GPU_PAUSE}/resume {GPU_RESUME} C, CPU pause {CPU_PAUSE}/resume {CPU_RESUME} C "
-          f"(CPU source: {cpu_temperature_source()})", flush=True)
+    if THERMAL_GUARD_OFF:
+        print("thermal guard: OFF (full speed) - stall watchdog still active", flush=True)
+    else:
+        print(f"thermal guard: GPU pause {GPU_PAUSE}/resume {GPU_RESUME} C, CPU pause {CPU_PAUSE}/resume {CPU_RESUME} C "
+              f"(CPU source: {cpu_temperature_source()})", flush=True)
     def watch():
         while True:
             time.sleep(30)
