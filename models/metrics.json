@@ -1,173 +1,954 @@
 {
-  "trainedAt": "2026-09-27T18:21:46.4067552Z",
-  "dataset": {
-    "source": "Phishing Email Curated Datasets (Champa et al.), Zenodo, doi:10.5281/zenodo.8339691, CC BY 4.0",
-    "files": {
-      "Nazario.csv": {
-        "phishing": 1525,
-        "legitimate": 0
+  "model": {
+    "version": "2026.09.28-33aa49bb",
+    "trainedAtUtc": "2026-09-28T00:02:25.115313Z",
+    "description": "3-class (legitimate/spam/phishing) SDCA maximum-entropy on word 1-2-grams \u002B char 3-grams; old \u002B 2022-2026 English mail; confident-learning label cleanup; Platt-calibrated",
+    "calibration": {
+      "a": 1.0162,
+      "b": 0.52364
+    },
+    "thresholds": {
+      "phishing": 0.5,
+      "suspicious": 0.25
+    }
+  },
+  "calibration": {
+    "brierBefore": 0.04378,
+    "brierAfter": 0.0422
+  },
+  "labelCleaning": {
+    "removed": 489,
+    "issues": [
+      {
+        "source": "phishing_pot",
+        "givenClass": "phishing",
+        "predictedClass": "spam",
+        "count": 271
       },
-      "Nazario_5.csv": {
-        "phishing": 0,
-        "legitimate": 1493
+      {
+        "source": "phishing_pot",
+        "givenClass": "phishing",
+        "predictedClass": "legitimate",
+        "count": 105
       },
-      "SpamAssasin.csv": {
-        "phishing": 0,
-        "legitimate": 3758
+      {
+        "source": "untroubled.org spam 2024-25",
+        "givenClass": "spam",
+        "predictedClass": "phishing",
+        "count": 72
+      },
+      {
+        "source": "untroubled.org spam 2024-25",
+        "givenClass": "spam",
+        "predictedClass": "legitimate",
+        "count": 41
+      }
+    ]
+  },
+  "datasets": {
+    "zenodo": "Phishing Email Curated Datasets (Champa et al.), doi:10.5281/zenodo.8339691, CC BY 4.0",
+    "phishingPot": "github.com/rf-peixoto/phishing_pot - honeypot phishing captures 2022-2026",
+    "modernHam": "Public mailing-list archives 2024-2026: mail.python.org, lists.fedoraproject.org, mailman3.org",
+    "modernSpam": "untroubled.org spam archive (Bruce Guenter) 2024-2025",
+    "sources": [
+      {
+        "name": "Nazario",
+        "class": "phishing",
+        "modern": false,
+        "read": 1563,
+        "nonEnglish": 88,
+        "tooShort": 5,
+        "duplicates": 31,
+        "kept": 1439
+      },
+      {
+        "name": "Nazario_5 (phishing)",
+        "class": "phishing",
+        "modern": false,
+        "read": 1563,
+        "nonEnglish": 88,
+        "tooShort": 5,
+        "duplicates": 1470,
+        "kept": 0
+      },
+      {
+        "name": "Nigerian_Fraud",
+        "class": "phishing",
+        "modern": false,
+        "read": 3332,
+        "nonEnglish": 39,
+        "tooShort": 9,
+        "duplicates": 106,
+        "kept": 3178
+      },
+      {
+        "name": "Nazario_5 (Enron ham)",
+        "class": "legitimate",
+        "modern": false,
+        "read": 1500,
+        "nonEnglish": 80,
+        "tooShort": 6,
+        "duplicates": 6,
+        "kept": 1408
+      },
+      {
+        "name": "SpamAssassin ham",
+        "class": "legitimate",
+        "modern": false,
+        "read": 4091,
+        "nonEnglish": 122,
+        "tooShort": 102,
+        "duplicates": 261,
+        "kept": 3606
+      },
+      {
+        "name": "SpamAssassin spam",
+        "class": "spam",
+        "modern": false,
+        "read": 1718,
+        "nonEnglish": 179,
+        "tooShort": 8,
+        "duplicates": 32,
+        "kept": 1499
+      },
+      {
+        "name": "CEAS_08 ham",
+        "class": "legitimate",
+        "modern": false,
+        "read": 17312,
+        "nonEnglish": 785,
+        "tooShort": 70,
+        "duplicates": 504,
+        "kept": 15953
+      },
+      {
+        "name": "CEAS_08 spam",
+        "class": "spam",
+        "modern": false,
+        "read": 21842,
+        "nonEnglish": 1326,
+        "tooShort": 2949,
+        "duplicates": 3056,
+        "kept": 14511
+      },
+      {
+        "name": "TREC_05 ham",
+        "class": "legitimate",
+        "modern": false,
+        "read": 32329,
+        "nonEnglish": 3028,
+        "tooShort": 590,
+        "duplicates": 1499,
+        "kept": 27212
+      },
+      {
+        "name": "TREC_05 spam",
+        "class": "spam",
+        "modern": false,
+        "read": 22946,
+        "nonEnglish": 5569,
+        "tooShort": 317,
+        "duplicates": 808,
+        "kept": 16252
+      },
+      {
+        "name": "TREC_06 ham",
+        "class": "legitimate",
+        "modern": false,
+        "read": 12411,
+        "nonEnglish": 138,
+        "tooShort": 220,
+        "duplicates": 335,
+        "kept": 11718
+      },
+      {
+        "name": "TREC_06 spam",
+        "class": "spam",
+        "modern": false,
+        "read": 3988,
+        "nonEnglish": 420,
+        "tooShort": 8,
+        "duplicates": 248,
+        "kept": 3312
+      },
+      {
+        "name": "TREC_07 ham",
+        "class": "legitimate",
+        "modern": false,
+        "read": 24358,
+        "nonEnglish": 2808,
+        "tooShort": 208,
+        "duplicates": 1028,
+        "kept": 20314
+      },
+      {
+        "name": "TREC_07 spam",
+        "class": "spam",
+        "modern": false,
+        "read": 29399,
+        "nonEnglish": 1853,
+        "tooShort": 37,
+        "duplicates": 1946,
+        "kept": 25563
+      },
+      {
+        "name": "phishing_pot",
+        "class": "phishing",
+        "modern": true,
+        "read": 8611,
+        "nonEnglish": 4317,
+        "tooShort": 114,
+        "duplicates": 1060,
+        "kept": 3120
+      },
+      {
+        "name": "untroubled.org spam 2024-25",
+        "class": "spam",
+        "modern": true,
+        "read": 17422,
+        "nonEnglish": 5633,
+        "tooShort": 137,
+        "duplicates": 3541,
+        "kept": 8111
+      },
+      {
+        "name": "announce@lists.fedoraproject.org-2024",
+        "class": "legitimate",
+        "modern": true,
+        "read": 15,
+        "nonEnglish": 0,
+        "tooShort": 1,
+        "duplicates": 0,
+        "kept": 14
+      },
+      {
+        "name": "announce@lists.fedoraproject.org-2025",
+        "class": "legitimate",
+        "modern": true,
+        "read": 12,
+        "nonEnglish": 0,
+        "tooShort": 0,
+        "duplicates": 0,
+        "kept": 12
+      },
+      {
+        "name": "announce@lists.fedoraproject.org-2026",
+        "class": "legitimate",
+        "modern": true,
+        "read": 14,
+        "nonEnglish": 0,
+        "tooShort": 0,
+        "duplicates": 1,
+        "kept": 13
+      },
+      {
+        "name": "devel@lists.fedoraproject.org-2024",
+        "class": "legitimate",
+        "modern": true,
+        "read": 7969,
+        "nonEnglish": 777,
+        "tooShort": 9,
+        "duplicates": 89,
+        "kept": 2500
+      },
+      {
+        "name": "devel@lists.fedoraproject.org-2025",
+        "class": "legitimate",
+        "modern": true,
+        "read": 6446,
+        "nonEnglish": 1006,
+        "tooShort": 4,
+        "duplicates": 101,
+        "kept": 2500
+      },
+      {
+        "name": "devel@lists.fedoraproject.org-2026",
+        "class": "legitimate",
+        "modern": true,
+        "read": 4640,
+        "nonEnglish": 611,
+        "tooShort": 7,
+        "duplicates": 101,
+        "kept": 2500
+      },
+      {
+        "name": "mailman-users@mailman3.org-2024",
+        "class": "legitimate",
+        "modern": true,
+        "read": 1470,
+        "nonEnglish": 64,
+        "tooShort": 0,
+        "duplicates": 6,
+        "kept": 1400
+      },
+      {
+        "name": "mailman-users@mailman3.org-2025",
+        "class": "legitimate",
+        "modern": true,
+        "read": 1759,
+        "nonEnglish": 75,
+        "tooShort": 1,
+        "duplicates": 4,
+        "kept": 1679
+      },
+      {
+        "name": "mailman-users@mailman3.org-2026",
+        "class": "legitimate",
+        "modern": true,
+        "read": 730,
+        "nonEnglish": 28,
+        "tooShort": 0,
+        "duplicates": 1,
+        "kept": 701
+      },
+      {
+        "name": "python-announce-list@python.org-2024",
+        "class": "legitimate",
+        "modern": true,
+        "read": 147,
+        "nonEnglish": 1,
+        "tooShort": 0,
+        "duplicates": 3,
+        "kept": 143
+      },
+      {
+        "name": "python-announce-list@python.org-2025",
+        "class": "legitimate",
+        "modern": true,
+        "read": 128,
+        "nonEnglish": 5,
+        "tooShort": 0,
+        "duplicates": 3,
+        "kept": 120
+      },
+      {
+        "name": "python-announce-list@python.org-2026",
+        "class": "legitimate",
+        "modern": true,
+        "read": 78,
+        "nonEnglish": 2,
+        "tooShort": 0,
+        "duplicates": 3,
+        "kept": 73
+      },
+      {
+        "name": "python-ideas@python.org-2024",
+        "class": "legitimate",
+        "modern": true,
+        "read": 7,
+        "nonEnglish": 0,
+        "tooShort": 0,
+        "duplicates": 0,
+        "kept": 7
+      },
+      {
+        "name": "python-list@python.org-2024",
+        "class": "legitimate",
+        "modern": true,
+        "read": 1360,
+        "nonEnglish": 19,
+        "tooShort": 5,
+        "duplicates": 1,
+        "kept": 1335
+      },
+      {
+        "name": "python-list@python.org-2025",
+        "class": "legitimate",
+        "modern": true,
+        "read": 613,
+        "nonEnglish": 13,
+        "tooShort": 3,
+        "duplicates": 4,
+        "kept": 593
+      },
+      {
+        "name": "python-list@python.org-2026",
+        "class": "legitimate",
+        "modern": true,
+        "read": 314,
+        "nonEnglish": 6,
+        "tooShort": 3,
+        "duplicates": 3,
+        "kept": 302
+      },
+      {
+        "name": "users@lists.fedoraproject.org-2024",
+        "class": "legitimate",
+        "modern": true,
+        "read": 4658,
+        "nonEnglish": 211,
+        "tooShort": 45,
+        "duplicates": 24,
+        "kept": 2500
+      },
+      {
+        "name": "users@lists.fedoraproject.org-2025",
+        "class": "legitimate",
+        "modern": true,
+        "read": 4614,
+        "nonEnglish": 256,
+        "tooShort": 56,
+        "duplicates": 12,
+        "kept": 2500
+      },
+      {
+        "name": "users@lists.fedoraproject.org-2026",
+        "class": "legitimate",
+        "modern": true,
+        "read": 2360,
+        "nonEnglish": 115,
+        "tooShort": 64,
+        "duplicates": 7,
+        "kept": 2174
+      }
+    ],
+    "splits": {
+      "oldTrain": 47827,
+      "oldTest": 11790,
+      "modernTrain": 22304,
+      "modernTune": 3406,
+      "modernTest": 6587
+    }
+  },
+  "experiment1_oldDataOnly": {
+    "oldTest": {
+      "phishingVsRest": {
+        "count": 11790,
+        "positives": 1024,
+        "precision": 0.8891,
+        "recall": 0.8223,
+        "f1": 0.8544,
+        "falsePositiveRate": 0.0098,
+        "auc": 0.9919,
+        "truePositives": 842,
+        "falsePositives": 105,
+        "trueNegatives": 10661,
+        "falseNegatives": 182
+      },
+      "threeClassAccuracy": 0.9319,
+      "confusion": {
+        "legitimate": {
+          "legitimate": 5644,
+          "spam": 164,
+          "phishing": 4
+        },
+        "spam": {
+          "legitimate": 375,
+          "spam": 4473,
+          "phishing": 106
+        },
+        "phishing": {
+          "legitimate": 63,
+          "spam": 91,
+          "phishing": 870
+        }
+      },
+      "accuracyBySource": {
+        "CEAS_08 ham": 0.9575,
+        "CEAS_08 spam": 0.9048,
+        "Nazario": 0.6858,
+        "Nazario_5 (Enron ham)": 0.918,
+        "Nigerian_Fraud": 0.9162,
+        "SpamAssassin ham": 0.9274,
+        "SpamAssassin spam": 0.7815,
+        "TREC_05 ham": 0.9718,
+        "TREC_05 spam": 0.8785,
+        "TREC_06 ham": 0.9886,
+        "TREC_06 spam": 0.8664,
+        "TREC_07 ham": 0.983,
+        "TREC_07 spam": 0.93
       }
     },
-    "train": 5420,
-    "test": 1356
-  },
-  "selected": "words \u002B char-3grams \u002B SDCA logistic regression",
-  "candidates": [
-    {
-      "name": "words \u002B SDCA logistic regression",
-      "accuracy": 0.9919,
-      "precision": 0.9868,
-      "recall": 0.977,
-      "f1": 0.9819,
-      "auc": 0.9969,
-      "trainSeconds": 4.9
-    },
-    {
-      "name": "words \u002B L-BFGS logistic regression",
-      "accuracy": 0.9727,
-      "precision": 0.9963,
-      "recall": 0.882,
-      "f1": 0.9357,
-      "auc": 0.9968,
-      "trainSeconds": 0.9
-    },
-    {
-      "name": "words \u002B char-3grams \u002B SDCA logistic regression",
-      "accuracy": 0.9934,
-      "precision": 0.9837,
-      "recall": 0.9869,
-      "f1": 0.9853,
-      "auc": 0.9961,
-      "trainSeconds": 8.8
-    },
-    {
-      "name": "words \u002B char-3grams \u002B L-BFGS logistic regression",
-      "accuracy": 0.9823,
-      "precision": 0.993,
-      "recall": 0.9279,
-      "f1": 0.9593,
-      "auc": 0.9962,
-      "trainSeconds": 1.8
+    "modernTest": {
+      "phishingVsRest": {
+        "count": 6587,
+        "positives": 711,
+        "precision": 0.3958,
+        "recall": 0.0802,
+        "f1": 0.1333,
+        "falsePositiveRate": 0.0148,
+        "auc": 0.7957,
+        "truePositives": 57,
+        "falsePositives": 87,
+        "trueNegatives": 5789,
+        "falseNegatives": 654
+      },
+      "threeClassAccuracy": 0.8166,
+      "confusion": {
+        "legitimate": {
+          "legitimate": 4327,
+          "spam": 13,
+          "phishing": 1
+        },
+        "spam": {
+          "legitimate": 442,
+          "spam": 980,
+          "phishing": 113
+        },
+        "phishing": {
+          "legitimate": 253,
+          "spam": 386,
+          "phishing": 72
+        }
+      },
+      "accuracyBySource": {
+        "announce@lists.fedoraproject.org-2024": 1,
+        "announce@lists.fedoraproject.org-2025": 1,
+        "announce@lists.fedoraproject.org-2026": 1,
+        "devel@lists.fedoraproject.org-2024": 1,
+        "devel@lists.fedoraproject.org-2025": 0.9963,
+        "devel@lists.fedoraproject.org-2026": 0.995,
+        "mailman-users@mailman3.org-2024": 1,
+        "mailman-users@mailman3.org-2025": 1,
+        "mailman-users@mailman3.org-2026": 1,
+        "phishing_pot": 0.1013,
+        "python-announce-list@python.org-2024": 0.9697,
+        "python-announce-list@python.org-2025": 0.9706,
+        "python-announce-list@python.org-2026": 1,
+        "python-list@python.org-2024": 1,
+        "python-list@python.org-2025": 0.9767,
+        "python-list@python.org-2026": 1,
+        "untroubled.org spam 2024-25": 0.6384,
+        "users@lists.fedoraproject.org-2024": 0.9962,
+        "users@lists.fedoraproject.org-2025": 0.9977,
+        "users@lists.fedoraproject.org-2026": 0.9953
+      }
     }
-  ],
+  },
+  "experiment2_shipped": {
+    "oldTest": {
+      "phishingVsRest": {
+        "count": 11790,
+        "positives": 1024,
+        "precision": 0.8875,
+        "recall": 0.8398,
+        "f1": 0.863,
+        "falsePositiveRate": 0.0101,
+        "auc": 0.9913,
+        "truePositives": 860,
+        "falsePositives": 109,
+        "trueNegatives": 10657,
+        "falseNegatives": 164
+      },
+      "threeClassAccuracy": 0.9296,
+      "confusion": {
+        "legitimate": {
+          "legitimate": 5597,
+          "spam": 208,
+          "phishing": 7
+        },
+        "spam": {
+          "legitimate": 372,
+          "spam": 4473,
+          "phishing": 109
+        },
+        "phishing": {
+          "legitimate": 29,
+          "spam": 105,
+          "phishing": 890
+        }
+      },
+      "accuracyBySource": {
+        "CEAS_08 ham": 0.9454,
+        "CEAS_08 spam": 0.8974,
+        "Nazario": 0.7635,
+        "Nazario_5 (Enron ham)": 0.918,
+        "Nigerian_Fraud": 0.9121,
+        "SpamAssassin ham": 0.9395,
+        "SpamAssassin spam": 0.8151,
+        "TREC_05 ham": 0.963,
+        "TREC_05 spam": 0.8838,
+        "TREC_06 ham": 0.9784,
+        "TREC_06 spam": 0.8484,
+        "TREC_07 ham": 0.9764,
+        "TREC_07 spam": 0.9315
+      }
+    },
+    "modernTest": {
+      "phishingVsRest": {
+        "count": 6587,
+        "positives": 711,
+        "precision": 0.8061,
+        "recall": 0.4852,
+        "f1": 0.6058,
+        "falsePositiveRate": 0.0141,
+        "auc": 0.953,
+        "truePositives": 345,
+        "falsePositives": 83,
+        "trueNegatives": 5793,
+        "falseNegatives": 366
+      },
+      "threeClassAccuracy": 0.9208,
+      "confusion": {
+        "legitimate": {
+          "legitimate": 4330,
+          "spam": 11,
+          "phishing": 0
+        },
+        "spam": {
+          "legitimate": 87,
+          "spam": 1360,
+          "phishing": 88
+        },
+        "phishing": {
+          "legitimate": 98,
+          "spam": 238,
+          "phishing": 375
+        }
+      },
+      "accuracyBySource": {
+        "announce@lists.fedoraproject.org-2024": 1,
+        "announce@lists.fedoraproject.org-2025": 1,
+        "announce@lists.fedoraproject.org-2026": 1,
+        "devel@lists.fedoraproject.org-2024": 1,
+        "devel@lists.fedoraproject.org-2025": 0.9963,
+        "devel@lists.fedoraproject.org-2026": 0.9983,
+        "mailman-users@mailman3.org-2024": 1,
+        "mailman-users@mailman3.org-2025": 1,
+        "mailman-users@mailman3.org-2026": 1,
+        "phishing_pot": 0.5274,
+        "python-announce-list@python.org-2024": 0.9394,
+        "python-announce-list@python.org-2025": 1,
+        "python-announce-list@python.org-2026": 1,
+        "python-list@python.org-2024": 1,
+        "python-list@python.org-2025": 0.9767,
+        "python-list@python.org-2026": 0.9701,
+        "untroubled.org spam 2024-25": 0.886,
+        "users@lists.fedoraproject.org-2024": 0.9981,
+        "users@lists.fedoraproject.org-2025": 1,
+        "users@lists.fedoraproject.org-2026": 0.9977
+      }
+    }
+  },
+  "endToEnd": {
+    "note": "Full analyser on modern tune/test splits, DOM-equivalent input (no raw headers). Thresholds tuned on tune split only.",
+    "defaultThresholds": {
+      "phishingThreshold": 0.7,
+      "suspiciousThreshold": 0.4,
+      "phishingVerdict": {
+        "count": 5052,
+        "positives": 711,
+        "precision": 1,
+        "recall": 0.4318,
+        "f1": 0.6031,
+        "falsePositiveRate": 0,
+        "auc": 0.9854,
+        "truePositives": 307,
+        "falsePositives": 0,
+        "trueNegatives": 4341,
+        "falseNegatives": 404
+      },
+      "anyWarning": {
+        "count": 5052,
+        "positives": 711,
+        "precision": 0.9386,
+        "recall": 0.6878,
+        "f1": 0.7938,
+        "falsePositiveRate": 0.0074,
+        "auc": 0.9854,
+        "truePositives": 489,
+        "falsePositives": 32,
+        "trueNegatives": 4309,
+        "falseNegatives": 222
+      },
+      "verdicts": {
+        "phishing": {
+          "phishing": 307,
+          "suspicious": 182,
+          "safe": 222
+        },
+        "legitimate": {
+          "phishing": 0,
+          "suspicious": 32,
+          "safe": 4309
+        },
+        "spam": {
+          "phishing": 68,
+          "suspicious": 191,
+          "safe": 1276
+        }
+      }
+    },
+    "calibrated": {
+      "phishingThreshold": 0.5,
+      "suspiciousThreshold": 0.25,
+      "phishingVerdict": {
+        "count": 5052,
+        "positives": 711,
+        "precision": 0.9716,
+        "recall": 0.6259,
+        "f1": 0.7613,
+        "falsePositiveRate": 0.003,
+        "auc": 0.9854,
+        "truePositives": 445,
+        "falsePositives": 13,
+        "trueNegatives": 4328,
+        "falseNegatives": 266
+      },
+      "anyWarning": {
+        "count": 5052,
+        "positives": 711,
+        "precision": 0.9395,
+        "recall": 0.7862,
+        "f1": 0.856,
+        "falsePositiveRate": 0.0083,
+        "auc": 0.9854,
+        "truePositives": 559,
+        "falsePositives": 36,
+        "trueNegatives": 4305,
+        "falseNegatives": 152
+      },
+      "verdicts": {
+        "phishing": {
+          "phishing": 445,
+          "suspicious": 114,
+          "safe": 152
+        },
+        "legitimate": {
+          "phishing": 13,
+          "suspicious": 23,
+          "safe": 4305
+        },
+        "spam": {
+          "phishing": 158,
+          "suspicious": 226,
+          "safe": 1151
+        }
+      }
+    },
+    "ruleRates": [
+      {
+        "code": "shortener",
+        "phishingRate": 0.1474,
+        "legitimateRate": 0.0014
+      },
+      {
+        "code": "reply-to-mismatch",
+        "phishingRate": 0.088,
+        "legitimateRate": 0
+      },
+      {
+        "code": "reply-to-freemail",
+        "phishingRate": 0.0603,
+        "legitimateRate": 0
+      },
+      {
+        "code": "brand-display-mismatch",
+        "phishingRate": 0.0435,
+        "legitimateRate": 0
+      },
+      {
+        "code": "ip-url",
+        "phishingRate": 0.0386,
+        "legitimateRate": 0.0032
+      },
+      {
+        "code": "text-href-mismatch",
+        "phishingRate": 0.0376,
+        "legitimateRate": 0.0002
+      },
+      {
+        "code": "suspicious-tld",
+        "phishingRate": 0.0307,
+        "legitimateRate": 0.0002
+      },
+      {
+        "code": "lookalike-sender",
+        "phishingRate": 0.0297,
+        "legitimateRate": 0
+      },
+      {
+        "code": "lookalike-domain",
+        "phishingRate": 0.0109,
+        "legitimateRate": 0.0032
+      },
+      {
+        "code": "display-name-address",
+        "phishingRate": 0.0069,
+        "legitimateRate": 0.0005
+      },
+      {
+        "code": "userinfo-url",
+        "phishingRate": 0.002,
+        "legitimateRate": 0
+      },
+      {
+        "code": "brand-display-freemail",
+        "phishingRate": 0,
+        "legitimateRate": 0.0002
+      },
+      {
+        "code": "punycode",
+        "phishingRate": 0,
+        "legitimateRate": 0
+      }
+    ],
+    "authenticationOnModernPhishing": {
+      "emails": 3120,
+      "dmarc-fail": 0.0747,
+      "spf-fail-or-softfail": 0.0715,
+      "dkim-fail": 0.0894,
+      "no-dkim-and-no-spf-pass": 0.0997,
+      "compauth-fail": 0.1699,
+      "all-pass": 0.3119,
+      "any-auth-failure": 0.3144
+    }
+  },
   "topPhishingTerms": [
+    "unsubscribe",
+    "wallet",
+    "ledger",
     "your",
-    "de",
-    "account",
+    "may unsubscribe",
+    "gambling",
+    "claim",
+    "our emails",
+    "btc",
+    "spins",
+    "enc",
+    "fw",
+    "tokens",
+    "praveen",
+    "money",
+    "welcome",
+    "\u003Cnumber\u003E btc",
+    "here or",
+    "reward",
+    "exclusive",
+    "wij",
+    "all email",
     "important",
-    "dear",
-    "view",
-    "your account",
-    "linkedin",
-    "payment",
-    "document",
-    "bank",
-    "en",
-    "update",
-    "incoming",
-    "intended",
-    "click",
-    "kindly",
-    "below",
-    "para",
-    "email",
-    "t\u043E",
-    "usaa",
-    "sie",
-    "\u003Cnumber\u003E px",
-    "please"
+    "these emails",
+    "statement",
+    "laptop",
+    "wish to",
+    "unsubscribe from",
+    "rewards",
+    "win"
   ],
   "topLegitimateTerms": [
-    "the",
-    "list",
-    "that",
-    "of",
-    "at",
-    "perl",
-    "accomplishments",
-    "it",
-    "news",
-    "of the",
-    "mailing",
-    "as",
-    "in",
-    "on",
-    "they",
-    "mailing list",
-    "but",
-    "in the",
-    "me",
-    "up",
-    "handango",
-    "there",
     "re",
-    "iso",
-    "submissionid"
+    "wrote",
+    "thanks",
+    "at \u003Clink\u003E",
+    "that",
+    "bush",
+    "the",
+    "on",
+    "perl",
+    "change",
+    "mm",
+    "im",
+    "to \u003Clink\u003E",
+    "users",
+    "use",
+    "should",
+    "mm \u003Cnumber\u003E",
+    "message from",
+    "file",
+    "travelocity",
+    "there",
+    "list",
+    "version",
+    "meeting",
+    "  watch",
+    "university",
+    "at",
+    "questions",
+    "at \u003Cnumber\u003E",
+    "mark"
   ],
   "probes": [
     {
-      "Subject": "Your account has been suspended",
-      "probability": 0.9999,
+      "subject": "Your account has been suspended",
+      "phishing": 0.9438,
+      "spam": 0.0937,
       "terms": [
-        "account",
-        "your",
         "your account",
-        "dear",
-        "click",
-        "customer"
+        "account",
+        "verify",
+        "here to",
+        "verify your",
+        "dear customer"
       ]
     },
     {
-      "Subject": "Invoice #4821 overdue - action required",
-      "probability": 0.9996,
+      "subject": "Invoice #4821 overdue - action required",
+      "phishing": 0.8588,
+      "spam": 0.2023,
       "terms": [
-        "document",
-        "payment",
         "view",
-        "invoice",
+        "confirm",
+        "details",
+        "login",
         "password",
-        "your"
+        "action required"
       ]
     },
     {
-      "Subject": "You have (1) pending package",
-      "probability": 0.9932,
+      "subject": "You have (1) pending package",
+      "phishing": 0.6535,
+      "spam": 0.4174,
       "terms": [
-        "your",
-        "payment",
-        "parcel",
         "pending",
+        "parcel",
+        "your parcel",
+        "payment",
         "update",
-        "update your"
+        "here"
       ]
     },
     {
-      "Subject": "Lunch tomorrow?",
-      "probability": 0.0292,
+      "subject": "50% off everything this weekend only!",
+      "phishing": 0.2079,
+      "spam": 0.4798,
+      "terms": [
+        "unsubscribe",
+        "these emails",
+        "unsubscribe from",
+        "emails",
+        "save",
+        "\u003Cnumber\u003E off"
+      ]
+    },
+    {
+      "subject": "Your order #112-4432 has shipped",
+      "phishing": 0.2574,
+      "spam": 0.5816,
+      "terms": [
+        "your package",
+        "package"
+      ]
+    },
+    {
+      "subject": "Lunch tomorrow?",
+      "phishing": 0.0101,
+      "spam": 0.0362,
       "terms": []
     },
     {
-      "Subject": "Minutes from Tuesday\u0027s sprint review",
-      "probability": 0.3545,
+      "subject": "Minutes from Tuesday\u0027s sprint review",
+      "phishing": 0.0201,
+      "spam": 0.0369,
       "terms": [
-        "update",
-        "action"
+        "login",
+        "action",
+        "update"
       ]
     },
     {
-      "Subject": "Re: draft of chapter 3",
-      "probability": 0.0389,
+      "subject": "Reset your password",
+      "phishing": 0.7469,
+      "spam": 0.236,
       "terms": [
-        "you have"
+        "password",
+        "your account",
+        "account",
+        "reset",
+        "this email",
+        "ignore this"
       ]
     }
-  ]
+  ],
+  "trainingMinutes": 7.6
 }

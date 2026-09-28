@@ -1,0 +1,13 @@
+{
+  "version": "2026.09.28-33aa49bb",
+  "trainedAtUtc": "2026-09-28T00:02:25.115313Z",
+  "description": "3-class (legitimate/spam/phishing) SDCA maximum-entropy on word 1-2-grams \u002B char 3-grams; old \u002B 2022-2026 English mail; confident-learning label cleanup; Platt-calibrated",
+  "calibration": {
+    "a": 1.0162,
+    "b": 0.52364
+  },
+  "thresholds": {
+    "phishing": 0.5,
+    "suspicious": 0.25
+  }
+}

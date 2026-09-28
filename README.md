@@ -21,42 +21,66 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
 
 | Signal | What it catches | Why this technique |
 |---|---|---|
-| **Text classifier** (ML) | Urgency, credential requests, impersonation phrasing, e.g. "verify your account within 24 hours", "kindly update your payment" | These are patterns in free text with endless variants. They're learned from ~1,500 real phishing emails, not written as `if` statements. |
+| **Text classifier** (ML) | Urgency, credential requests, impersonation phrasing, e.g. "verify your account within 24 hours", "kindly update your payment" | These are patterns in free text with endless variants. They're learned from ~7,700 real phishing and fraud emails (3,100 of them from 2022–2026), not written as `if` statements. |
 | **Sender checks** (rules) | `PayPal <support@gmail.com>`, `paypa1.com`, Reply-To pointing elsewhere, SPF/DKIM/DMARC failures | These are crisp, verifiable facts. A rule is exact and explainable, and needs no training data. |
 | **Link checks** (rules) | `www.dhl.com` text linking to `dhl-parcel-track.info`, raw IP URLs, `paypal.com.verify.xyz`, homoglyphs | Same reason: they're deterministic properties of a URL. |
 
-The signals are fused with a **noisy-OR**: `score = 1 − (1 − 0.9·p_text)(1 − s_sender)(1 − s_links)`, where each rule score is itself a noisy-OR of its findings' weights. One strong signal is enough to flag an email, weak signals add up, and a single weak signal can't dominate. Thresholds are ≥ 0.7 for phishing and ≥ 0.4 for suspicious. You can change them in `appsettings.json`.
+The signals are fused with a **noisy-OR**: `score = 1 − (1 − 0.9·p_text)(1 − s_sender)(1 − s_links)`, where each rule score is itself a noisy-OR of its findings' weights. One strong signal is enough to flag an email, weak signals add up, and a single weak signal can't dominate. The thresholds are **calibrated on held-out modern mail**, not hand-picked: currently ≥ 0.50 for phishing and ≥ 0.25 for suspicious. They're kept within bounds so that no single weak rule can produce a verdict on its own. They ship with the model in `models/model-info.json`, and `appsettings.json` can override them.
 
 ## The ML model
 
-- **Data:** *Phishing Email Curated Datasets* (Champa et al., Zenodo, [doi:10.5281/zenodo.8339691](https://doi.org/10.5281/zenodo.8339691), CC BY 4.0).
-  - Phishing: Nazario corpus.
-  - Legitimate: raw Enron mail from `Nazario_5` plus SpamAssassin *ham*.
-  - After de-duplication there are 6,776 emails (1,525 phishing, 5,251 legitimate), split 80/20 with stratification.
-- **Pipeline (ML.NET):** normalise → word 1–2-grams (TF-IDF) + character 3-grams → L2 normalise → `SdcaLogisticRegression`. The trainer compares four candidates and keeps the one with the best F1:
+### Data: old and modern, three classes
+The classifier sorts mail into three classes: **legitimate / spam / phishing**. Spam is its own class because bulk marketing isn't phishing, and merging the two teaches the model "newsletter = attack".
 
-| Candidate | Accuracy | Precision | Recall | F1 | AUC |
-|---|---|---|---|---|---|
-| words + SDCA | 99.19% | 98.68% | 97.70% | 98.19% | 0.997 |
-| words + L-BFGS | 97.27% | 99.63% | 88.20% | 93.57% | 0.997 |
-| **words + char-3grams + SDCA** ✅ | **99.34%** | 98.37% | **98.69%** | **98.53%** | 0.996 |
-| words + char-3grams + L-BFGS | 98.23% | 99.30% | 92.79% | 95.93% | 0.996 |
+| Class | Old (1990s–2008) | Modern (2022–2026) |
+|---|---|---|
+| legitimate | Enron, TREC 05/06/07, CEAS-08, SpamAssassin ham ([Zenodo](https://doi.org/10.5281/zenodo.8339691), CC BY 4.0) | Public mailing-list archives: Python, Fedora, Mailman (21k emails) |
+| spam | TREC 05/06/07, CEAS-08, SpamAssassin spam | [untroubled.org](http://untroubled.org/spam/) spam archive 2024–25 (8.1k) |
+| phishing | Nazario corpus + Nigerian advance-fee fraud | [phishing_pot](https://github.com/rf-peixoto/phishing_pot) honeypot captures (3.1k English) |
 
-- **Explainability:** the model is linear, so for each email the API reports the n-grams with the largest `feature × weight` contribution. The banner can then say *why*, e.g. "strongest cues: "parcel", "payment", "update your"".
-- **What it learned:** the top phishing-ward terms include *account, dear, payment, verify, kindly, mailbox, update, click, below*. It also learned *"tо"* spelled with a **Cyrillic "о"**, a real obfuscation trick used to dodge keyword filters.
+After cleaning, de-duplication and caps there are about 92,000 emails. Everything is English-only for now; non-English mail is kept for later multilingual work. All sources get the same cleaning:
+- **Removed corpus fingerprints:** honeypot and spam-trap owner names, Enron internals, mailing-list names and footers, MIME artifacts, and digits (so years can't give away the era).
+- **Removed reply history:** quoted replies are stripped to match what Gmail shows.
+- **Thread-aware split:** the split is by thread or campaign, so copies of one phishing campaign never land on both sides.
 
-### Leakage I found and removed
-The first model scored well, but its top features included `=utf` and `url <link> date`. Those are **corpus artifacts**, not language: undecoded MIME subjects appear only in the phishing dump, and RSS-digest lines appear only in SpamAssassin ham. The trainer now strips:
-- MIME encoded-words and RSS-digest lines;
-- mailbox-owner names (`jose@monkey.org`, Enron internals);
-- digits, so the model can't tell 2002-era ham from 2015-era phishing by the years in them.
+### Honest evaluation: the number that used to be 98.5%
+The first version reported **F1 98.5%**. That was measured on test emails from the same old corpora it trained on. I re-evaluated properly:
 
-It also drops the pre-tokenised `Enron.csv` for the same reason. I chose to accept slightly lower headline numbers in exchange for a model that learns phishing language.
+| Experiment (phishing vs rest, modern 2022–26 test set) | Precision | Recall | F1 | AUC |
+|---|---|---|---|---|
+| Model trained on **old data only** (the original approach) | 39.6% | **8.0%** | 13.3% | 0.796 |
+| **Shipped model** (old + modern, cleaned, calibrated), classifier alone | 80.6% | 48.5% | 60.6% | 0.953 |
+
+The model trained only on old data **misses 92% of today's phishing**, even though it scores 85% F1 on old-era test mail. Phishing language drifts, so a single in-distribution number is misleading.
+
+**End-to-end** measures the full analyser (text + sender + links, fused) on the held-out modern test set. It uses only the fields the extension reads from Gmail, and thresholds tuned on a separate split:
+
+| Verdict | Precision | Recall | False-positive rate on legitimate mail |
+|---|---|---|---|
+| "phishing" | 97.2% | 62.6% | **0.30%** (13 of 4,341) |
+| any warning ("phishing" or "suspicious") | 94.0% | 78.6% | 0.83% |
+
+### Techniques that made the difference
+- **Confident learning (label cleaning):** the honeypot also catches marketing, and the spam trap also catches phishing. Each noisy email is scored by a model that never saw it (3-fold, split by campaign). Training emails whose label the model confidently rejects are dropped, 489 in total: 271 "phishing" that were really spam, 72 "spam" that were really phishing, and so on. Test data is never cleaned. (Northcutt et al., 2021, the idea behind *cleanlab*.)
+- **Platt calibration:** the phishing probability is rescaled on held-out data so that 0.8 means roughly 80% (Brier score 0.0438 → 0.0422).
+- **Threshold calibration:** chosen on a *tune* split, reported on a separate *test* split, never the same data.
+- **Model versioning:** each model gets a version such as `2026.09.28-33aa49bb` (date + SHA-256 of the file). It appears in `/health` and in every API response.
+
+### What it learned
+- **Phishing-ward:** *verify your, your account, dear customer, action required, password, claim, wallet, reward*, and *"tо"* spelled with a **Cyrillic "о"** (a filter-evasion trick).
+- **Spam-ward:** *unsubscribe, % off, save*. A "50% off this weekend" probe now scores spam 48% vs phishing 21%.
+- **Explainability:** for each email the API returns the n-grams with the largest `feature × weight` pull towards phishing.
+
+### What the data says about the rules
+Measured on modern mail:
+- **Rule firing rates:** every rule fires on ≤ 0.3% of legitimate mail. The URL shortener rule fires on 14.7% of phishing.
+- **Real headers on 3,120 phishing emails:** only **31%** fail any SPF/DKIM/DMARC/compauth check, and **31% pass all of them**. Email authentication alone would miss most phishing, which is why content and link analysis exist.
 
 ### Honest limitations
-- The legitimate corpus is old (2001–2002 corporate and mailing-list mail). Modern marketing newsletters look different, so they can get a higher text score than they deserve. The rule-based checks and the "suspicious" middle band soften this. The real fix is adding modern ham, such as your own labelled inbox.
-- Spam is **not** phishing. SpamAssassin spam is deliberately excluded, so the model isn't a spam filter.
-- The model is English-centric. Arabic phishing is a clear next step.
+- **No modern legitimate *transactional or marketing* mail:** there are no newsletters, receipts or password resets from real companies, because no public corpus exists. A genuine "Reset your password" email still scores 75% phishing on text alone. The fix is labelled mail from real inboxes.
+- **Legitimate mail is tech-flavoured:** modern legitimate mail comes from developer mailing lists, so its vocabulary leans technical.
+- **Phishing recall is 63–79%:** about 1 in 5 modern phishing emails gets no warning. Many are low-effort scams whose text resembles spam.
+- **English only:** non-English emails are detected, and the classifier's weight is halved with a stated limitation. A multilingual model (including Arabic) is the next step.
 
 ## DOM reading vs. Gmail API
 
@@ -74,16 +98,16 @@ The extension reads the rendered Gmail DOM instead of calling the Gmail API. Thi
 ## Running locally
 
 ```bash
-dotnet test                                                     # 47 tests: rules, scoring, end-to-end API with the real model
+dotnet test                                                     # 58 tests: rules, scoring, language, end-to-end API with the real model
 dotnet run --project src/PhishingAnalyser.Api --launch-profile http   # http://localhost:5080/swagger
 ```
 
 Load the extension: go to `chrome://extensions`, turn on Developer mode, click **Load unpacked** and choose `extension/`, then open any Gmail message.
 
-Retrain (optional; the trained model is committed in `models/`):
+Retrain (optional; the trained model is committed in `models/`). This needs ~1 GB of data and ~8 minutes:
 ```bash
 ./tools/download-data.sh
-dotnet run --project tools/PhishingAnalyser.Trainer -c Release   # writes models/*.zip + metrics.json
+dotnet run --project tools/PhishingAnalyser.Trainer -c Release   # writes the model .zip, model-info.json and metrics.json to models/
 ```
 
 ## CI/CD & deployment
