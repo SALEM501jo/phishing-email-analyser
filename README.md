@@ -109,6 +109,25 @@ The extension reads the rendered Gmail DOM instead of calling the Gmail API. Thi
 
 **SPF/DKIM/DMARC:** the rendered page doesn't show authentication results. As a best-effort step, the extension fetches Gmail's own *Show original* view (same origin, the user's own session) and sends **only the header block**. The API trusts only the top-most `Authentication-Results` header, which is the one Gmail itself stamped. If that fetch fails, the verdict says auth wasn't checked instead of pretending.
 
+## Extension robustness, privacy and feedback
+- **Gmail layout changes.** Each part of the page is found by an ordered list of strategies: Gmail's obfuscated class
+  names first, then attributes Gmail relies on functionally (`email=""`, `data-message-id`, `role="main"`), then a
+  largest-text heuristic for the body. A test simulates a Gmail release that renames every class and checks that
+  extraction still works. If an email is open but can't be read, the banner says **"Gmail layout not recognised"**
+  instead of failing silently. *Options → Diagnostics* shows which strategy found each part (no email content), which
+  makes a breakage easy to report.
+- **Privacy mode.** *Options → metadata only* sends sender, links and attachment names but **no body text**. HTTPS is
+  enforced for any server other than localhost, both on the options page and again in the service worker.
+- **Feedback loop.** 👍/👎 on the banner sends the verdict, reason codes and model version, enough to track
+  false-positive and false-negative rates per model version (`GET /api/v1/feedback/summary`). The email itself is
+  included **only** if you opt in, and becomes labelled retraining data. It's stored in SQLite on a Docker volume,
+  the only writable path in the read-only container.
+- **Tests.** Vitest + jsdom run the real extension scripts in CI against a sanitised Gmail snapshot. They cover
+  extraction, the class-rename fallback, **XSS-safe rendering** (a malicious email can't inject HTML into the banner),
+  Arabic RTL/bidi, feedback, and the HTTPS guard.
+- **Outlook (future work).** The API is client-agnostic: an Outlook add-in would call the same `/api/v1/analyse`.
+  It's a second client with its own manifest and Office.js DOM access, so it's out of scope for now.
+
 ## Security & privacy decisions
 - The API never logs email content, only the verdict, score and counts.
 - Only the service worker calls the API, so the API key never touches Gmail's page. Messages are accepted only from `mail.google.com` tabs.
