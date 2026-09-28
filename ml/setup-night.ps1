@@ -104,7 +104,7 @@ for folder, repo in models.items():
     # Both jobs are resumable: if interrupted, re-running continues where they stopped.
     Step "6/7 Translate part of the corpus to Arabic with NLLB-200 (GPU, ~30-60 min)"
     if (Test-Path "$project\data\processed\corpus.jsonl") {
-        Run "translation" { & $python "$PSScriptRoot\translate.py" --train-per-class 3000 --eval-per-class 300 }
+        Run "translation" { & $python "$PSScriptRoot\translate.py" --train-per-class 3000 --eval-per-class 300 --batch 16 }
     } else {
         Log "corpus.jsonl missing - run the .NET export first (see ml/README.md). Skipping." "Yellow"
     }

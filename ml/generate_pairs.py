@@ -178,6 +178,7 @@ def main():
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 out.flush()
                 watchdog.beat()
+                watchdog.cool_down(breather=0.5)   # this laptop's GPU overheats under sustained load
                 written += 1
                 if written % 20 == 0:
                     rate = written / (time.time() - started)

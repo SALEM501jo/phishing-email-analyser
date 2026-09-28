@@ -123,6 +123,7 @@ def main():
                                       "language": "ar", "source": row["source"] + " (translated)"}, ensure_ascii=False) + "\n")
             out.flush()
             watchdog.beat()
+            watchdog.cool_down()   # this laptop's GPU overheats under sustained load
             if (start // 8) % 25 == 0:
                 done_n = start + len(group)
                 print(f"{done_n}/{len(todo)} translated ({done_n / (time.time() - started) * 60:.0f}/min)", flush=True)
