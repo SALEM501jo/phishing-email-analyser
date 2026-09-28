@@ -9,3 +9,8 @@ TestResults/
 data/
 
 # Trained model IS committed (models/) so the Docker build is reproducible without retraining.
+
+# Local ML environment and logs
+ml/.venv/
+ml/*.log
+ml/output/
