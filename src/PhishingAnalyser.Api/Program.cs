@@ -11,8 +11,18 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 512 * 1024);
 
-builder.Services.Configure<ScoringOptions>(builder.Configuration.GetSection("Scoring"));
-builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ScoringOptions>>().Value);
+// Thresholds come from the model's calibration (model-info.json); anything under "Scoring" in config overrides them.
+builder.Services.AddSingleton(sp =>
+{
+    var options = new ScoringOptions();
+    if (sp.GetRequiredService<IContentClassifier>().Model?.Thresholds is { } calibrated)
+    {
+        options.PhishingThreshold = calibrated.Phishing;
+        options.SuspiciousThreshold = calibrated.Suspicious;
+    }
+    builder.Configuration.GetSection("Scoring").Bind(options);
+    return options;
+});
 builder.Services.AddSingleton(BrandCatalog.Default);
 builder.Services.AddSingleton<HeaderAnalyser>();
 builder.Services.AddSingleton<LinkAnalyser>();
@@ -48,7 +58,13 @@ app.UseRateLimiter();
 // Warm the model at startup so the first request isn't slow and a broken model fails loudly in the logs.
 var classifier = app.Services.GetRequiredService<IContentClassifier>();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", contentModelLoaded = classifier.IsLoaded }));
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "ok",
+    contentModelLoaded = classifier.IsLoaded,
+    model = classifier.Model,
+    thresholds = new { app.Services.GetRequiredService<ScoringOptions>().PhishingThreshold, app.Services.GetRequiredService<ScoringOptions>().SuspiciousThreshold },
+}));
 
 app.MapPost("/api/v1/analyse", Results<Ok<AnalysisResult>, ValidationProblem> (
         AnalyseRequest request, EmailAnalyser analyser, ILogger<Program> logger) =>

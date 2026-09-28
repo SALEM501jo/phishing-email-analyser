@@ -19,8 +19,7 @@ public sealed class EmailAnalyser(
         var headers = headerAnalyser.Analyse(email);
         var links = linkAnalyser.Analyse(email.Links);
 
-        var contentEvidence = content.Evaluated ? options.ContentWeight * content.Probability : 0;
-        var score = Scoring.NoisyOr([contentEvidence, headers.Score, links.Score]);
+        var score = Scoring.NoisyOr([ContentEvidence(content, options), headers.Score, links.Score]);
 
         var verdict = score >= options.PhishingThreshold ? Verdicts.Phishing
             : score >= options.SuspiciousThreshold ? Verdicts.Suspicious
@@ -31,10 +30,23 @@ public sealed class EmailAnalyser(
             Math.Round(score, 3),
             BuildReasons(content, headers, links),
             new AnalysisBreakdown(
-                content with { Probability = Math.Round(content.Probability, 3) },
+                content with { Probability = Math.Round(content.Probability, 3), SpamProbability = Math.Round(content.SpamProbability, 3) },
                 headers with { Score = Math.Round(headers.Score, 3) },
                 links with { Score = Math.Round(links.Score, 3) }),
-            BuildLimitations(email, content));
+            BuildLimitations(email, content),
+            classifier.Model?.Version);
+    }
+
+    /// <summary>
+    /// How much the classifier contributes to the fused score. Halved for non-English text,
+    /// where the model is outside its training distribution.
+    /// </summary>
+    public static double ContentEvidence(ContentResult content, ScoringOptions options)
+    {
+        if (!content.Evaluated)
+            return 0;
+        var weight = content.LanguageSupported ? options.ContentWeight : options.ContentWeight * 0.5;
+        return weight * content.Probability;
     }
 
     private static List<string> BuildReasons(ContentResult content, ComponentResult headers, ComponentResult links)
@@ -48,13 +60,17 @@ public sealed class EmailAnalyser(
 
         if (content.Evaluated)
         {
-            var pct = (content.Probability * 100).ToString("0", CultureInfo.InvariantCulture) + "%";
+            var pct = Percent(content.Probability);
             if (content.Probability >= 0.5)
             {
                 var terms = content.IndicativeTerms.Count > 0
                     ? $" - strongest cues: {string.Join(", ", content.IndicativeTerms.Take(4).Select(t => $"\"{t}\""))}"
                     : "";
                 reasons.Add((content.Probability, $"Wording resembles known phishing ({pct} per the text classifier){terms}"));
+            }
+            else if (content.SpamProbability >= 0.5)
+            {
+                reasons.Add((0, $"Wording looks like bulk marketing/spam ({Percent(content.SpamProbability)}), not a targeted phishing attempt (phishing {pct})"));
             }
             else
             {
@@ -80,6 +96,10 @@ public sealed class EmailAnalyser(
             limitations.Add("SPF/DKIM/DMARC not checked: raw headers were not supplied (Gmail's page does not display them).");
         if (!content.Evaluated)
             limitations.Add("Text classifier not applied (model unavailable or empty body).");
+        else if (!content.LanguageSupported)
+            limitations.Add("The text does not appear to be English; the classifier was trained on English mail, so its weight was halved.");
         return limitations;
     }
+
+    private static string Percent(double p) => (p * 100).ToString("0", CultureInfo.InvariantCulture) + "%";
 }

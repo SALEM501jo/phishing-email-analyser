@@ -17,10 +17,28 @@ public class ApiTests(WebApplicationFactory<Program> factory) : IClassFixture<We
         .CreateClient();
 
     [Fact]
-    public async Task Health_reports_model_loaded()
+    public async Task Health_reports_model_loaded_with_version()
     {
         var json = await CreateClient().GetFromJsonAsync<JsonElement>("/health");
         Assert.True(json.GetProperty("contentModelLoaded").GetBoolean());
+        Assert.False(string.IsNullOrEmpty(json.GetProperty("model").GetProperty("version").GetString()));
+    }
+
+    [Fact]
+    public async Task Marketing_email_is_reported_as_spam_not_phishing()
+    {
+        var response = await CreateClient().PostAsJsonAsync("/api/v1/analyse", new
+        {
+            subject = "50% off everything this weekend only!",
+            senderName = "Northwind Outdoor",
+            senderEmail = "deals@northwind-outdoor.com",
+            body = "Shop our biggest sale of the year. Free shipping on orders over $50. Use code SAVE50 at checkout. Unsubscribe from these emails at any time.",
+        });
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var content = json.GetProperty("breakdown").GetProperty("content");
+        Assert.True(content.GetProperty("spamProbability").GetDouble() > content.GetProperty("probability").GetDouble());
+        Assert.NotEqual("phishing", json.GetProperty("verdict").GetString());
+        Assert.False(string.IsNullOrEmpty(json.GetProperty("modelVersion").GetString()));
     }
 
     [Fact]

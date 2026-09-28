@@ -32,17 +32,26 @@ public sealed record ComponentResult(
     bool Evaluated,
     IReadOnlyList<Finding> Findings);
 
+/// <param name="Probability">Probability the text is phishing.</param>
+/// <param name="SpamProbability">Probability it is bulk/marketing spam (reported, not counted as phishing).</param>
+/// <param name="LanguageSupported">False when the text doesn't look English - the model wasn't trained on it.</param>
 public sealed record ContentResult(
     bool Evaluated,
     double Probability,
-    IReadOnlyList<string> IndicativeTerms);
+    double SpamProbability,
+    IReadOnlyList<string> IndicativeTerms,
+    bool LanguageSupported = true)
+{
+    public static ContentResult NotEvaluated { get; } = new(false, 0, 0, []);
+}
 
 public sealed record AnalysisResult(
     string Verdict,
     double Score,
     IReadOnlyList<string> Reasons,
     AnalysisBreakdown Breakdown,
-    IReadOnlyList<string> Limitations);
+    IReadOnlyList<string> Limitations,
+    string? ModelVersion = null);
 
 public sealed record AnalysisBreakdown(
     ContentResult Content,

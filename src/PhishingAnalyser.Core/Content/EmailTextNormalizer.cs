@@ -31,6 +31,11 @@ public static partial class EmailTextNormalizer
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
 
+    // Zero-width and soft-hyphen characters are used to split words ("pa​ssword") so keyword
+    // and n-gram matching misses them; they never carry meaning in email text.
+    [GeneratedRegex("[­​-‏⁠﻿]")]
+    private static partial Regex Invisible();
+
     public static string Normalize(string? subject, string? body)
     {
         var text = $"{subject}\n{body}";
@@ -40,6 +45,7 @@ public static partial class EmailTextNormalizer
         text = ScriptOrStyle().Replace(text, " ");
         text = HtmlTag().Replace(text, " ");
         text = WebUtility.HtmlDecode(text);
+        text = Invisible().Replace(text, "").Normalize(System.Text.NormalizationForm.FormKC);
         text = Url().Replace(text, " urltoken ");
         text = EmailAddress().Replace(text, " emailtoken ");
         text = Digits().Replace(text, " numtoken ");
