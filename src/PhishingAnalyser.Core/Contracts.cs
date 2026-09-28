@@ -72,7 +72,8 @@ public sealed record AnalysisBreakdown(
     ComponentResult Headers,
     ComponentResult Links,
     ComponentResult? Reputation = null,
-    ComponentResult? Attachments = null);
+    ComponentResult? Attachments = null,
+    ComponentResult? Obfuscation = null);
 
 public static class Verdicts
 {

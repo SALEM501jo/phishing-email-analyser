@@ -65,3 +65,23 @@ public class AttachmentTests
         Assert.Contains("lookalike-domain", codes);  // rnicrosoft -> microsoft, found only inside the QR code
     }
 }
+
+public class ObfuscationTests
+{
+    private readonly ObfuscationAnalyser _analyser = new();
+
+    [Fact]
+    public void Cyrillic_letter_inside_a_latin_word_is_flagged()
+    {
+        var result = _analyser.Analyse(new EmailSubmission { SenderName = "P\u0430ypal Support", Body = "Verify your Micr\u043Esoft account." });
+        Assert.Contains(result.Findings, f => f.Code == "mixed-script-sender");
+        Assert.Contains(result.Findings, f => f.Code == "mixed-script-text");
+    }
+
+    [Theory]
+    [InlineData("Normal English text about PayPal and Microsoft.")]
+    [InlineData("Привет, это обычный русский текст.")]          // all-Cyrillic is fine
+    [InlineData("عزيزي العميل، شحنتك من Aramex في الطريق")]   // Arabic with a Latin brand name, separate words
+    public void Ordinary_text_in_any_single_script_is_clean(string body) =>
+        Assert.Empty(_analyser.Analyse(new EmailSubmission { Body = body }).Findings);
+}

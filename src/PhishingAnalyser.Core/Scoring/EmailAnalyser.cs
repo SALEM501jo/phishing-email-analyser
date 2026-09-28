@@ -16,6 +16,7 @@ public sealed class EmailAnalyser(
 {
     private const int MaxReasons = 6;
     private static readonly AttachmentAnalyser Attachments = new();
+    private static readonly ObfuscationAnalyser Obfuscation = new();
 
     /// <summary>Full analysis including network reputation lookups (used by the API).</summary>
     public async Task<AnalysisResult> AnalyseAsync(EmailSubmission email, CancellationToken ct = default)
@@ -56,13 +57,14 @@ public sealed class EmailAnalyser(
             links = links with { Findings = [.. links.Findings, qrFinding], Score = Scoring.NoisyOr([.. links.Findings.Select(f => f.Weight), qrFinding.Weight]) };
         }
         var attachments = Attachments.Analyse(email.Attachments, email.Body);
+        var obfuscation = Obfuscation.Analyse(email);
 
         // The UI language follows the email, independent of whether a model is loaded.
         var language = LanguageHeuristics.Detect(EmailTextNormalizer.Normalize(email.Subject, email.Body)) == Languages.Arabic
             ? Languages.Arabic
             : Languages.English;
 
-        var score = Scoring.NoisyOr([ContentEvidence(content, options), headers.Score, links.Score, attachments.Score, reputation?.Score ?? 0]);
+        var score = Scoring.NoisyOr([ContentEvidence(content, options), headers.Score, links.Score, attachments.Score, obfuscation.Score, reputation?.Score ?? 0]);
 
         var verdict = score >= options.PhishingThreshold ? Verdicts.Phishing
             : score >= options.SuspiciousThreshold ? Verdicts.Suspicious
@@ -71,13 +73,14 @@ public sealed class EmailAnalyser(
         return new AnalysisResult(
             verdict,
             Math.Round(score, 3),
-            BuildReasons(content, headers, links, reputation, attachments, language),
+            BuildReasons(content, headers, links, reputation, [.. attachments.Findings, .. obfuscation.Findings], language),
             new AnalysisBreakdown(
                 content with { Probability = Math.Round(content.Probability, 3), SpamProbability = Math.Round(content.SpamProbability, 3) },
                 headers with { Score = Math.Round(headers.Score, 3) },
                 links with { Score = Math.Round(links.Score, 3) },
                 reputation is null ? null : reputation with { Score = Math.Round(reputation.Score, 3) },
-                attachments with { Score = Math.Round(attachments.Score, 3) }),
+                attachments with { Score = Math.Round(attachments.Score, 3) },
+                obfuscation with { Score = Math.Round(obfuscation.Score, 3) }),
             BuildLimitations(email, content, reputation, language),
             classifier.Model?.Version,
             language);
@@ -95,12 +98,12 @@ public sealed class EmailAnalyser(
         return weight * content.Probability;
     }
 
-    private static List<string> BuildReasons(ContentResult content, ComponentResult headers, ComponentResult links, ComponentResult? reputation, ComponentResult attachments, string language)
+    private static List<string> BuildReasons(ContentResult content, ComponentResult headers, ComponentResult links, ComponentResult? reputation, IReadOnlyList<Finding> otherFindings, string language)
     {
         var arabic = language == Languages.Arabic;
         var reasons = MergeSameDomain(headers.Findings, links.Findings)
             .Concat(reputation?.Findings ?? [])
-            .Concat(attachments.Findings)
+            .Concat(otherFindings)
             .Where(f => f.Weight > 0)
             .Select(f => (f.Weight, Message: f.In(language)))
             .ToList();
