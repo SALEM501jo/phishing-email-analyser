@@ -26,7 +26,8 @@ async function scan() {
     return;
   }
 
-  const pending = { status: "pending" };
+  const language = guessLanguage(`${extracted.subject} ${extracted.body}`);
+  const pending = { status: "pending", language };
   results.set(id, pending);
   banner._render(pending);
 
@@ -39,13 +40,20 @@ async function scan() {
 
   const state = response?.ok
     ? { status: "done", result: response.result, usedRawHeaders: !!rawHeaders }
-    : { status: "error", message: response?.error ?? "no response" };
+    : { status: "error", message: response?.error ?? "no response", language };
 
   if (state.status === "error") results.delete(id); // allow a retry next time the message is opened
   else results.set(id, state);
 
   // Re-query: Gmail may have replaced the node while we were waiting.
   (findOpenMessage()?.root.querySelector(BANNER_TAG) ?? banner)._render(state);
+}
+
+/** Quick local guess so the "scanning"/"offline" states already use the email's language. */
+function guessLanguage(text) {
+  const letters = text.match(/\p{L}/gu) ?? [];
+  const arabic = letters.filter((ch) => /[؀-ۿ]/.test(ch)).length;
+  return letters.length > 0 && arabic / letters.length >= 0.4 ? "ar" : "en";
 }
 
 new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });

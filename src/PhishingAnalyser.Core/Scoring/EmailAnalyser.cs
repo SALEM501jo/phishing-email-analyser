@@ -63,7 +63,8 @@ public sealed class EmailAnalyser(
             .Select(f => (f.Weight, Message: f.In(language)))
             .ToList();
 
-        if (content.Evaluated)
+        // A model that wasn't trained on this language shouldn't describe the wording; the limitation note covers it.
+        if (content.Evaluated && content.LanguageSupported)
         {
             var pct = Percent(content.Probability);
             if (content.Probability >= 0.5)
