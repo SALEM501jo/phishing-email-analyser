@@ -64,27 +64,34 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
 
         if (DomainUtils.IsIpAddress(host))
         {
-            yield return new(Source, "ip-url", $"Link points at a raw IP address ({host}) instead of a domain", 0.45);
+            yield return new(Source, "ip-url", $"Link points at a raw IP address ({host}) instead of a domain", 0.45,
+                $"الرابط يشير إلى عنوان IP مباشر ({host}) بدلًا من اسم نطاق");
             yield break;
         }
 
         if (host.Contains("xn--", StringComparison.Ordinal))
-            yield return new(Source, "punycode", $"Link uses an internationalised (punycode) domain that renders as '{DomainUtils.ToUnicode(host)}'", 0.3);
+            yield return new(Source, "punycode", $"Link uses an internationalised (punycode) domain that renders as '{DomainUtils.ToUnicode(host)}'", 0.3,
+                $"الرابط يستخدم نطاقًا دوليًا (punycode) يظهر بالشكل '{DomainUtils.ToUnicode(host)}'");
 
         if (brands.DetectImpersonation(host) is { } match)
-            yield return new(Source, "lookalike-domain", $"Link domain impersonates {match.Brand.Name}: {match.Detail}", 0.6);
+            yield return new(Source, "lookalike-domain", $"Link domain impersonates {match.Brand.Name}: {match.Detail}", 0.6,
+                $"نطاق الرابط ينتحل صفة {match.Brand.Name}: {match.DetailArabic}");
 
         if (Shorteners.Contains(host))
-            yield return new(Source, "shortener", $"Link hides its destination behind a URL shortener ({host})", 0.15);
+            yield return new(Source, "shortener", $"Link hides its destination behind a URL shortener ({host})", 0.15,
+                $"الرابط يخفي وجهته الحقيقية خلف خدمة تقصير روابط ({host})");
 
         if (SuspiciousTlds.Contains(DomainUtils.Tld(host)))
-            yield return new(Source, "suspicious-tld", $"Link uses a TLD frequently abused for phishing (.{DomainUtils.Tld(host)})", 0.12);
+            yield return new(Source, "suspicious-tld", $"Link uses a TLD frequently abused for phishing (.{DomainUtils.Tld(host)})", 0.12,
+                $"الرابط يستخدم امتداد نطاق شائع الاستخدام في التصيّد (.{DomainUtils.Tld(host)})");
 
         if (href.Contains('@') && Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.UserInfo.Length > 0)
-            yield return new(Source, "userinfo-url", $"Link hides its real host after an '@' ({host})", 0.4);
+            yield return new(Source, "userinfo-url", $"Link hides its real host after an '@' ({host})", 0.4,
+                $"الرابط يخفي النطاق الحقيقي بعد الرمز '@' ({host})");
 
         if (TextDomainMismatch(link.Text, host) is { } shownHost)
-            yield return new(Source, "text-href-mismatch", $"Link text shows '{shownHost}' but actually goes to '{host}'", 0.45);
+            yield return new(Source, "text-href-mismatch", $"Link text shows '{shownHost}' but actually goes to '{host}'", 0.45,
+                $"نص الرابط يعرض '{shownHost}' لكنه في الحقيقة يذهب إلى '{host}'");
     }
 
     /// <summary>If the visible link text is itself a URL/domain, returns it when it doesn't match the real host.</summary>

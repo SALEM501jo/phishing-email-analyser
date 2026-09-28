@@ -30,26 +30,32 @@ public sealed partial class HeaderAnalyser(BrandCatalog brands)
         if (senderDomain is not null)
         {
             if (brands.DetectImpersonation(senderDomain) is { } match)
-                findings.Add(new(Source, "lookalike-sender", $"Sender domain impersonates {match.Brand.Name}: {match.Detail}", 0.65));
+                findings.Add(new(Source, "lookalike-sender", $"Sender domain impersonates {match.Brand.Name}: {match.Detail}", 0.65,
+                    $"نطاق المرسل ينتحل صفة {match.Brand.Name}: {match.DetailArabic}"));
 
             if (brands.MentionedIn(senderName) is { } brand && brands.OwnerOf(senderDomain) != brand)
             {
                 findings.Add(DomainUtils.IsFreeMail(senderDomain)
-                    ? new(Source, "brand-display-freemail", $"Display name claims to be {brand.Name} but the message was sent from a free {senderDomain} account", 0.5)
-                    : new(Source, "brand-display-mismatch", $"Display name claims to be {brand.Name} but the sender domain is {senderDomain}", 0.4));
+                    ? new(Source, "brand-display-freemail", $"Display name claims to be {brand.Name} but the message was sent from a free {senderDomain} account", 0.5,
+                        $"اسم المرسل يدّعي أنه {brand.Name} لكن الرسالة أُرسلت من حساب مجاني على {senderDomain}")
+                    : new(Source, "brand-display-mismatch", $"Display name claims to be {brand.Name} but the sender domain is {senderDomain}", 0.4,
+                        $"اسم المرسل يدّعي أنه {brand.Name} لكن نطاق المرسل هو {senderDomain}"));
             }
 
             // "service@paypal.com <attacker@evil.xyz>"
             var nameEmailDomain = DomainUtils.GetEmailDomain(EmailInText().Match(senderName ?? "").Value);
             if (nameEmailDomain is not null && DomainUtils.RegistrableDomain(nameEmailDomain) != DomainUtils.RegistrableDomain(senderDomain))
-                findings.Add(new(Source, "display-name-address", $"Display name shows the address @{nameEmailDomain} but the real sender is @{senderDomain}", 0.45));
+                findings.Add(new(Source, "display-name-address", $"Display name shows the address @{nameEmailDomain} but the real sender is @{senderDomain}", 0.45,
+                    $"اسم المرسل يعرض العنوان @{nameEmailDomain} لكن المرسل الحقيقي هو @{senderDomain}"));
 
             var replyDomain = DomainUtils.GetEmailDomain(replyTo);
             if (replyDomain is not null && DomainUtils.RegistrableDomain(replyDomain) != DomainUtils.RegistrableDomain(senderDomain))
             {
                 findings.Add(DomainUtils.IsFreeMail(replyDomain)
-                    ? new(Source, "reply-to-freemail", $"Replies are redirected to a free {replyDomain} mailbox, not the sender's domain {senderDomain}", 0.35)
-                    : new(Source, "reply-to-mismatch", $"Reply-To domain ({replyDomain}) differs from the sender domain ({senderDomain})", 0.2));
+                    ? new(Source, "reply-to-freemail", $"Replies are redirected to a free {replyDomain} mailbox, not the sender's domain {senderDomain}", 0.35,
+                        $"الردود تُحوَّل إلى بريد مجاني على {replyDomain} وليس إلى نطاق المرسل {senderDomain}")
+                    : new(Source, "reply-to-mismatch", $"Reply-To domain ({replyDomain}) differs from the sender domain ({senderDomain})", 0.2,
+                        $"نطاق عنوان الرد ({replyDomain}) يختلف عن نطاق المرسل ({senderDomain})"));
             }
         }
 
@@ -67,7 +73,8 @@ public sealed partial class HeaderAnalyser(BrandCatalog brands)
         var authResults = headers.GetAll("Authentication-Results").FirstOrDefault();
         if (authResults is null)
         {
-            yield return new(Source, "auth-missing", "No Authentication-Results header was found", 0.1);
+            yield return new(Source, "auth-missing", "No Authentication-Results header was found", 0.1,
+                "لم يُعثر على ترويسة نتائج المصادقة (Authentication-Results)");
             yield break;
         }
 
@@ -80,19 +87,25 @@ public sealed partial class HeaderAnalyser(BrandCatalog brands)
         var dmarc = results.GetValueOrDefault("dmarc", "none");
 
         if (dmarc == "fail")
-            yield return new(Source, "dmarc-fail", "DMARC failed: the sender's domain did not authorise this message", 0.5);
+            yield return new(Source, "dmarc-fail", "DMARC failed: the sender's domain did not authorise this message", 0.5,
+                "فشل فحص DMARC: نطاق المرسل لم يخوّل إرسال هذه الرسالة");
         // Microsoft's composite verdict (Outlook/Office 365 receivers) - fails when the From domain looks spoofed
         // even if the domain publishes no DMARC policy.
         if (results.GetValueOrDefault("compauth") == "fail" && dmarc != "fail")
-            yield return new(Source, "compauth-fail", "The receiving server's composite authentication check failed (sender likely spoofed)", 0.35);
+            yield return new(Source, "compauth-fail", "The receiving server's composite authentication check failed (sender likely spoofed)", 0.35,
+                "فشل فحص المصادقة المركّب لدى الخادم المستقبِل (المرسل على الأرجح منتحَل)");
         if (spf is "fail" or "softfail")
-            yield return new(Source, "spf-fail", $"SPF {spf}: the sending server is not authorised by the sender's domain", spf == "fail" ? 0.35 : 0.15);
+            yield return new(Source, "spf-fail", $"SPF {spf}: the sending server is not authorised by the sender's domain", spf == "fail" ? 0.35 : 0.15,
+                $"نتيجة SPF هي {spf}: الخادم المرسِل غير مخوّل من نطاق المرسل");
         if (dkim == "fail")
-            yield return new(Source, "dkim-fail", "DKIM signature failed verification (message may have been altered or forged)", 0.3);
+            yield return new(Source, "dkim-fail", "DKIM signature failed verification (message may have been altered or forged)", 0.3,
+                "فشل التحقق من توقيع DKIM (قد تكون الرسالة معدّلة أو مزوّرة)");
         if (dkim == "none" && spf is "none" or "neutral")
-            yield return new(Source, "auth-none", "Message carries neither a DKIM signature nor an SPF pass", 0.15);
+            yield return new(Source, "auth-none", "Message carries neither a DKIM signature nor an SPF pass", 0.15,
+                "الرسالة لا تحمل توقيع DKIM ولم تنجح في فحص SPF");
         if (spf == "pass" && dkim == "pass" && dmarc == "pass")
-            yield return new(Source, "auth-pass", "SPF, DKIM and DMARC all passed", 0);
+            yield return new(Source, "auth-pass", "SPF, DKIM and DMARC all passed", 0,
+                "نجحت فحوص SPF وDKIM وDMARC جميعها");
     }
 
     private static string? FirstAddress(string? headerValue)

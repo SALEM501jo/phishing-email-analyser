@@ -2,9 +2,16 @@ using System.Text.RegularExpressions;
 
 namespace PhishingAnalyser.Core.Content;
 
+public static class Languages
+{
+    public const string English = "en";
+    public const string Arabic = "ar";
+    public const string Other = "other";
+}
+
 /// <summary>
-/// Cheap "is this English?" check. The classifier is trained on English mail, so its output on other
-/// languages is unreliable - the trainer filters on this and the API reports it as a limitation.
+/// Cheap language identification for the two languages the system supports. The classifier only scores
+/// languages it was trained on reliably, the trainer filters on this, and the API picks the UI language with it.
 /// </summary>
 public static partial class LanguageHeuristics
 {
@@ -26,12 +33,21 @@ public static partial class LanguageHeuristics
     [GeneratedRegex(@"\p{L}+")]
     private static partial Regex Word();
 
-    /// <param name="minWords">Below this many words there isn't enough evidence; the text is given the benefit of the doubt.</param>
-    public static bool IsLikelyEnglish(string text, int minWords = 12)
+    /// <summary>"en", "ar" or "other". Short texts without evidence default to English.</summary>
+    public static string Detect(string text, int minWords = 12)
     {
-        var words = Word().Matches(text.Length > 4000 ? text[..4000] : text);
+        var sample = text.Length > 4000 ? text[..4000] : text;
+        var words = Word().Matches(sample);
+        if (words.Count == 0)
+            return Languages.English;
+
+        var arabicWords = words.Count(w => ArabicText.ContainsArabic(w.Value));
+        // Arabic mail routinely mixes in Latin brand names, URLs and codes - a solid Arabic share is enough.
+        if (arabicWords >= 3 && arabicWords >= words.Count * 0.4)
+            return Languages.Arabic;
+
         if (words.Count < minWords)
-            return true;
+            return Languages.English;
 
         int latin = 0, function = 0, foreign = 0;
         foreach (Match w in words)
@@ -42,6 +58,10 @@ public static partial class LanguageHeuristics
             else if (ForeignFunctionWords.Contains(word)) foreign++;
         }
 
-        return latin >= words.Count * 0.8 && function >= words.Count * 0.08 && foreign < function * 0.5;
+        return latin >= words.Count * 0.8 && function >= words.Count * 0.08 && foreign < function * 0.5
+            ? Languages.English
+            : Languages.Other;
     }
+
+    public static bool IsLikelyEnglish(string text, int minWords = 12) => Detect(text, minWords) == Languages.English;
 }

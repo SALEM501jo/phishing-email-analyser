@@ -46,6 +46,7 @@ public static partial class EmailTextNormalizer
         text = HtmlTag().Replace(text, " ");
         text = WebUtility.HtmlDecode(text);
         text = Invisible().Replace(text, "").Normalize(System.Text.NormalizationForm.FormKC);
+        text = ArabicText.Normalize(text);
         text = Url().Replace(text, " urltoken ");
         text = EmailAddress().Replace(text, " emailtoken ");
         text = Digits().Replace(text, " numtoken ");

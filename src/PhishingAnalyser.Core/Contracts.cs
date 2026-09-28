@@ -24,7 +24,10 @@ public sealed class EmailSubmission
 /// A single piece of evidence. <see cref="Weight"/> is in [0,1] and is read as
 /// "probability this signal alone indicates phishing"; 0 means informational.
 /// </summary>
-public sealed record Finding(string Source, string Code, string Message, double Weight);
+public sealed record Finding(string Source, string Code, string Message, double Weight, string? MessageArabic = null)
+{
+    public string In(string language) => language == Content.Languages.Arabic && MessageArabic is not null ? MessageArabic : Message;
+}
 
 public sealed record ComponentResult(
     string Name,
@@ -34,24 +37,28 @@ public sealed record ComponentResult(
 
 /// <param name="Probability">Probability the text is phishing.</param>
 /// <param name="SpamProbability">Probability it is bulk/marketing spam (reported, not counted as phishing).</param>
-/// <param name="LanguageSupported">False when the text doesn't look English - the model wasn't trained on it.</param>
+/// <param name="LanguageSupported">False when the model wasn't trained on the email's language.</param>
+/// <param name="Language">Detected language of the text: "en", "ar" or "other".</param>
 public sealed record ContentResult(
     bool Evaluated,
     double Probability,
     double SpamProbability,
     IReadOnlyList<string> IndicativeTerms,
-    bool LanguageSupported = true)
+    bool LanguageSupported = true,
+    string Language = "en")
 {
     public static ContentResult NotEvaluated { get; } = new(false, 0, 0, []);
 }
 
+/// <param name="Language">Language the reasons are written in ("ar" for Arabic emails, otherwise "en").</param>
 public sealed record AnalysisResult(
     string Verdict,
     double Score,
     IReadOnlyList<string> Reasons,
     AnalysisBreakdown Breakdown,
     IReadOnlyList<string> Limitations,
-    string? ModelVersion = null);
+    string? ModelVersion = null,
+    string Language = "en");
 
 public sealed record AnalysisBreakdown(
     ContentResult Content,

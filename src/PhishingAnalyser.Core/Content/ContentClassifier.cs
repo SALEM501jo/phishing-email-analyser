@@ -15,12 +15,17 @@ public interface IContentClassifier
 /// <summary>Identity of the trained model, written by the trainer next to the .zip as model-info.json.</summary>
 /// <param name="Calibration">Platt scaling for the phishing probability, fitted on held-out modern mail.</param>
 /// <param name="Thresholds">Verdict thresholds calibrated end-to-end with this model; the API uses them unless configured.</param>
+/// <param name="Languages">Languages the model was trained on; others get a halved weight and a stated limitation.</param>
 public sealed record ModelInfo(
     string Version,
     DateTime TrainedAtUtc,
     string Description,
     PlattCalibration? Calibration = null,
-    VerdictThresholds? Thresholds = null);
+    VerdictThresholds? Thresholds = null,
+    string[]? Languages = null)
+{
+    public bool Supports(string language) => (Languages ?? [Content.Languages.English]).Contains(language);
+}
 
 /// <summary>calibrated = sigmoid(A · logit(raw) + B)</summary>
 public sealed record PlattCalibration(double A, double B)
@@ -111,6 +116,7 @@ public sealed class ContentClassifier : IContentClassifier
         lock (_gate)
             prediction = _engine.Predict(new EmailTextInput { Text = text });
 
+        var language = LanguageHeuristics.Detect(text);
         var phishing = (double)prediction.Score[_classIndex[EmailClasses.Phishing]];
         if (Model?.Calibration is { } calibration)
             phishing = calibration.Apply(phishing);
@@ -120,7 +126,8 @@ public sealed class ContentClassifier : IContentClassifier
             Probability: phishing,
             SpamProbability: prediction.Score[_classIndex[EmailClasses.Spam]],
             IndicativeTerms: TopContributingTerms(prediction.Features),
-            LanguageSupported: LanguageHeuristics.IsLikelyEnglish(text));
+            LanguageSupported: Model?.Supports(language) ?? language == Languages.English,
+            Language: language);
     }
 
     /// <summary>Per-class probabilities, for the trainer's evaluation.</summary>
