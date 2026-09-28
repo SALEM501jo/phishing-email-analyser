@@ -72,13 +72,18 @@ def main():
 
     rows = [json.loads(line) for line in SRC.read_text(encoding="utf-8").splitlines()]
     rng = random.Random(11)
-    selected = []
+    groups = []
     for split, per_class in (("train", args.train_per_class), ("tune", args.eval_per_class), ("test", args.eval_per_class)):
         for cls in ("legitimate", "spam", "phishing"):
             pool = [r for r in rows if r["split"] == split and r["class"] == cls and not r.get("labelIssue")]
             # Prefer modern mail: that's the distribution we care about.
             pool.sort(key=lambda r: (not r["modern"], rng.random()))
-            selected += pool[:per_class]
+            groups.append(pool[:per_class])
+
+    # Interleave all (split, class) groups proportionally, so a run that is cut short still leaves a balanced,
+    # usable sample (an earlier ordered run stopped after 2,224 rows that were ALL legitimate training mail).
+    selected = [row for _, row in sorted(
+        ((i / len(group), row) for group in groups for i, row in enumerate(group)), key=lambda x: x[0])]
 
     done = set()
     if OUT.exists():
