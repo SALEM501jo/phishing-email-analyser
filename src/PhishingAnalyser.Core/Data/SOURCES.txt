@@ -1,0 +1,3 @@
+The Public Suffix List (public_suffix_list.dat) is from https://publicsuffix.org, licensed under the Mozilla Public License 2.0.
+rdap-dns.json is IANA's RDAP bootstrap file (https://data.iana.org/rdap/dns.json).
+brands.json is this project's own editable brand catalogue.

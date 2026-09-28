@@ -6,7 +6,7 @@ obj/
 TestResults/
 
 # Raw training corpora are large and redistributed under their own licence - download with tools/download-data.sh
-data/
+/data/
 
 # Trained model IS committed (models/) so the Docker build is reproducible without retraining.
 
