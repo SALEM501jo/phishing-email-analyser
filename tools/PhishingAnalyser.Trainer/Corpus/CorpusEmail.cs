@@ -16,6 +16,9 @@ public sealed record CorpusEmail(
     bool Modern,
     string Group,
     EmailSubmission? Submission,
-    bool NoisyLabel = false);
+    bool NoisyLabel = false,
+    string Subject = "",
+    string VisibleBody = "",
+    string Language = "en");
 
 public enum Split { Train, Tune, Test }

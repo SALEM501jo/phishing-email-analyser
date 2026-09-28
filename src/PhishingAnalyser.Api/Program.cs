@@ -92,14 +92,26 @@ static IContentClassifier LoadClassifier(IServiceProvider sp, IConfiguration con
     var configured = config["ContentModel:Path"] ?? "models/phishing-content-model.zip";
     var path = Path.IsPathRooted(configured) ? configured : Path.Combine(env.ContentRootPath, configured);
 
-    if (!File.Exists(path))
+    var linear = File.Exists(path) ? ContentClassifier.Load(path) : null;
+
+    // Preferred: the multilingual transformer decides, the linear model explains (strongest cue words).
+    var transformerDir = config["ContentModel:TransformerPath"] ?? Path.Combine(Path.GetDirectoryName(path)!, "transformer");
+    if (!Path.IsPathRooted(transformerDir))
+        transformerDir = Path.Combine(env.ContentRootPath, transformerDir);
+    if (File.Exists(Path.Combine(transformerDir, "model.onnx")))
     {
-        logger.LogWarning("Content model not found at {Path}; running with rule-based checks only", path);
+        logger.LogInformation("Loading multilingual transformer from {Path} (explanations from the linear model)", transformerDir);
+        return new HybridContentClassifier(TransformerClassifier.Load(transformerDir), linear);
+    }
+
+    if (linear is null)
+    {
+        logger.LogWarning("No content model found at {Path}; running with rule-based checks only", path);
         return new UnavailableContentClassifier();
     }
 
-    logger.LogInformation("Loading content model from {Path}", path);
-    return ContentClassifier.Load(path);
+    logger.LogInformation("Loading linear content model from {Path}", path);
+    return linear;
 }
 
 // Optional shared-secret check so a publicly reachable demo instance isn't an open endpoint.

@@ -86,7 +86,7 @@ public static partial class CorpusSources
     /// Converts a MIME message into what the browser extension would send: visible text, links (text + href),
     /// sender, Reply-To, and the raw header block.
     /// </summary>
-    private static RawEmail FromMime(MimeMessage message)
+    public static RawEmail FromMime(MimeMessage message)
     {
         var html = message.HtmlBody;
         var text = message.TextBody ?? (html is null ? "" : System.Net.WebUtility.HtmlDecode(Markup().Replace(html, " ")));

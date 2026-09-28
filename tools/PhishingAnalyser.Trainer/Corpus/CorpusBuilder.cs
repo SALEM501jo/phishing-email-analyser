@@ -27,6 +27,9 @@ public static class CorpusBuilder
     public const int ModernHamPerFileCap = 2_500;
     public const int ModernSpamCap = 12_000;
 
+    /// <summary>Body length kept for export - transformers only read the first ~256 tokens anyway.</summary>
+    public const int MaxExportBody = 3_000;
+
     public static List<SourceSpec> DefaultSources(string raw)
     {
         string P(string f) => Path.Combine(raw, f);
@@ -97,7 +100,9 @@ public static class CorpusBuilder
                     RawHeaders = raw.Submission.RawHeaders,
                 };
 
-                kept.Add(new CorpusEmail(text, source.Class, source.Name, source.Modern, TextCleaning.GroupKey(raw.Subject, hash), submission, source.NoisyLabels));
+                kept.Add(new CorpusEmail(text, source.Class, source.Name, source.Modern, TextCleaning.GroupKey(raw.Subject, hash), submission, source.NoisyLabels,
+                    Subject: subject.Length > 300 ? subject[..300] : subject,
+                    VisibleBody: body.Length > MaxExportBody ? body[..MaxExportBody] : body));
             }
 
             if (source.Cap is { } cap && kept.Count > cap)

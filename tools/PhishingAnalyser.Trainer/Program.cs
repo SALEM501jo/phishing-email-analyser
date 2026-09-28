@@ -8,6 +8,32 @@ using PhishingAnalyser.Trainer.Corpus;
 using PhishingAnalyser.Trainer.Evaluation;
 
 // Usage: dotnet run --project tools/PhishingAnalyser.Trainer -c Release -- [dataDir=data/raw] [outDir=models]
+//        dotnet run --project tools/PhishingAnalyser.Trainer -c Release -- --eval-inbox data/eval/All-mail.mbox
+if (args.ElementAtOrDefault(0) == "--eval-inbox")
+{
+    var mbox = args.ElementAtOrDefault(1) ?? throw new ArgumentException("Pass the path of the Takeout .mbox file");
+    var classifier = ContentClassifier.Load(Path.Combine("models", "phishing-content-model.zip"));
+    var scoring = new ScoringOptions();
+    if (classifier.Model?.Thresholds is { } t) { scoring.PhishingThreshold = t.Phishing; scoring.SuspiciousThreshold = t.Suspicious; }
+    var analyser = new EmailAnalyser(classifier, new PhishingAnalyser.Core.Rules.HeaderAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default),
+                                     new PhishingAnalyser.Core.Rules.LinkAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default), scoring);
+    var inboxReport = InboxEvaluation.Run(mbox, analyser);
+    var reportPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(mbox))!, "inbox-report.json"); // stays in git-ignored data/
+    File.WriteAllText(reportPath, JsonSerializer.Serialize(new { model = classifier.Model?.Version, report = inboxReport }, ContentClassifier.JsonOptions));
+    Console.WriteLine($"Wrote {reportPath}");
+    return;
+}
+
+var processedDir = Path.Combine("data", "processed");
+if (args.ElementAtOrDefault(0) == "--prepare-transformer")
+{
+    TransformerDataset.Prepare(args.ElementAtOrDefault(1) ?? processedDir);
+    return;
+}
+var exportOnly = args.ElementAtOrDefault(0) == "--export-corpus";
+if (exportOnly)
+    args = args.Skip(1).ToArray();
+
 var dataDir = args.ElementAtOrDefault(0) ?? Path.Combine("data", "raw");
 var outDir = args.ElementAtOrDefault(1) ?? "models";
 Directory.CreateDirectory(outDir);
@@ -34,6 +60,17 @@ Console.WriteLine("\nCorpus (after cleaning, de-duplication and caps):");
 foreach (var g in emails.GroupBy(e => (e.Modern ? "modern" : "old", e.Class)).OrderBy(g => g.Key))
     Console.WriteLine($"  {g.Key.Item1,-7} {g.Key.Class,-11} {g.Count(),7}");
 Console.WriteLine($"  splits: old train={oldTrain.Count} old test={oldTest.Count} | modern train={modernTrain.Count} tune={modernTune.Count} test={modernTest.Count}");
+
+if (exportOnly)
+{
+    // Same confident-learning flags as the linear model, so the transformer trains on the same cleaned labels.
+    var (kept, _) = ConfidentLearning.Clean([.. oldTrain, .. modernTrain],
+        rows => ContentClassifier.FromModel(ml, Train("fold model", rows), ml.Data.LoadFromEnumerable(Array.Empty<EmailTextInput>()).Schema));
+    var keptSet = kept.ToHashSet(ReferenceEqualityComparer.Instance);
+    var issues = oldTrain.Concat(modernTrain).Where(e => !keptSet.Contains(e)).ToHashSet<CorpusEmail>(ReferenceEqualityComparer.Instance);
+    TransformerDataset.Export(emails, issues, Path.Combine(processedDir, "corpus.jsonl"));
+    return;
+}
 
 // ------------------------------------------------------------------ 2. experiments
 ITransformer Train(string name, IReadOnlyCollection<CorpusEmail> rows)
