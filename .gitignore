@@ -23,3 +23,8 @@ ml/output/
 # Extension dev dependencies
 extension/node_modules/
 ml/setup-progress.txt
+
+# Kaggle upload bundle (rebuilt from sources; large)
+kaggle/bundle/
+kaggle/*.zip
+results.zip

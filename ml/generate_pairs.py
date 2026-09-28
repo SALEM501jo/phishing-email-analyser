@@ -132,6 +132,7 @@ def main():
     ap.add_argument("--pairs-en", type=int, default=500)
     ap.add_argument("--pairs-ar", type=int, default=400)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--max-minutes", type=float, default=0, help="stop cleanly after this long (0 = no limit); for time-limited cloud sessions")
     args = ap.parse_args()
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -148,11 +149,17 @@ def main():
             brand = rng.choice(brands)
             etype = rng.choice(TYPES)
             plan.append((lang, i, brand, etype, rng.random() < 0.5))
+    # Interleave English and Arabic so a time-limited or interrupted run still yields both languages.
+    counts = {"en": max(args.pairs_en, 1), "ar": max(args.pairs_ar, 1)}
+    plan.sort(key=lambda p: p[1] / counts[p[0]])
 
     started, written = time.time(), 0
     watchdog.start(limit_seconds=900)   # a lost laptop GPU hangs generation forever - fail loudly instead
     with OUT.open("a", encoding="utf-8") as out:
         for lang, i, (brand, domain, _), (etype, legit_desc, phish_desc), subtle in plan:
+            if args.max_minutes and time.time() - started > args.max_minutes * 60:
+                print(f"time limit of {args.max_minutes:.0f} min reached - stopping cleanly (re-run to continue)", flush=True)
+                break
             pair_key = f"{lang}|{i}|{brand}|{etype}"
             name = rng.choice(NAMES_AR if lang == "ar" else NAMES_EN)
             for label in ("legitimate", "phishing"):

@@ -104,7 +104,8 @@ def report(rows, probs):
 def main():
     ap = argparse.ArgumentParser()
     # Local copy downloaded by setup-night.ps1 (distilbert/distilbert-base-multilingual-cased); a hub id also works.
-    ap.add_argument("--base", default=r"G:\ml-cache\models\distilbert-base-multilingual-cased")
+    local_base = Path(r"G:\ml-cache\models\distilbert-base-multilingual-cased")
+    ap.add_argument("--base", default=str(local_base) if local_base.exists() else "distilbert/distilbert-base-multilingual-cased")
     ap.add_argument("--max-len", type=int, default=256)
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--batch", type=int, default=16)

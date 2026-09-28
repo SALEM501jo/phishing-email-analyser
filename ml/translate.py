@@ -13,6 +13,7 @@ Translated test data is reported separately from real Arabic data - it measures 
 """
 import argparse
 import json
+import os
 import random
 import re
 import time
@@ -26,7 +27,9 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "data" / "processed" / "corpus.jsonl"
 OUT = ROOT / "data" / "processed" / "corpus_ar.jsonl"
-MODEL = r"G:\ml-cache\models\nllb-200-distilled-600M"  # facebook/nllb-200-distilled-600M, downloaded by setup-night.ps1
+# Local copy from setup-night.ps1 when present (this laptop); otherwise straight from the Hugging Face hub (cloud GPU).
+_LOCAL_NLLB = Path(r"G:\ml-cache\models\nllb-200-distilled-600M")
+MODEL = os.environ.get("ML_NLLB") or (str(_LOCAL_NLLB) if _LOCAL_NLLB.exists() else "facebook/nllb-200-distilled-600M")
 
 URL_OR_EMAIL = re.compile(r"(https?://\S+|www\.\S+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+)")
 
