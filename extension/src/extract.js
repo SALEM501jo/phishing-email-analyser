@@ -5,10 +5,17 @@ const GmailDom = {
   message: "div.adn.ads",          // one expanded message in a conversation
   sender: "span.gD[email]",
   body: "div.a3s",
+  attachment: "[download_url]",   // attachment chip; attribute = "mime/type:filename:url"
+  attachmentName: "span.aV3",     // fallback: file name label on the chip
 };
 
 const MAX_BODY = 60000;
 const MAX_LINKS = 300;
+const MAX_QR_IMAGES = 5;
+
+// Only images Gmail itself serves (its image proxy or attachment URLs) - never the sender's own servers,
+// where fetching an image (a tracking pixel) would tell the sender the email was opened.
+const QR_IMAGE_HOSTS = /^https:\/\/([a-z0-9-]+\.googleusercontent\.com|mail\.google\.com)\//i;
 
 /** Returns the last expanded message in the open conversation, or null. */
 function findOpenMessage() {
@@ -45,7 +52,32 @@ function extractEmail({ root, body }) {
     senderEmail: senderEl?.getAttribute("email") ?? "",
     body: body.innerText.slice(0, MAX_BODY),
     links,
+    attachments: extractAttachments(root),
   };
+}
+
+/** Attachment names and types from Gmail's attachment chips - the files themselves are never read. */
+function extractAttachments(root) {
+  const found = new Map();
+  for (const chip of root.querySelectorAll(GmailDom.attachment)) {
+    const [mimeType, name] = (chip.getAttribute("download_url") ?? "").split(":");
+    if (name) found.set(name, { name, mimeType });
+  }
+  if (found.size === 0) {
+    for (const label of root.querySelectorAll(GmailDom.attachmentName)) {
+      const name = label.innerText.trim();
+      if (name) found.set(name, { name, mimeType: null });
+    }
+  }
+  return [...found.values()].slice(0, 50);
+}
+
+/** Inline images large enough to hold a QR code, served by Gmail (see QR_IMAGE_HOSTS). */
+function qrCandidateImages(body) {
+  return [...body.querySelectorAll("img")]
+    .filter((img) => img.naturalWidth >= 80 && img.naturalHeight >= 80 && QR_IMAGE_HOSTS.test(img.currentSrc || img.src))
+    .map((img) => img.currentSrc || img.src)
+    .slice(0, MAX_QR_IMAGES);
 }
 
 /**

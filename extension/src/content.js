@@ -34,8 +34,9 @@ async function scan() {
   const settings = await chrome.storage.sync.get({ fetchRawHeaders: true });
   const rawHeaders = settings.fetchRawHeaders ? await fetchRawHeaders(messageId(open.root)) : null;
 
+  const qrImages = qrCandidateImages(open.body);
   const response = await chrome.runtime
-    .sendMessage({ type: "analyse", email: { ...extracted, rawHeaders } })
+    .sendMessage({ type: "analyse", email: { ...extracted, rawHeaders }, qrImages })
     .catch((e) => ({ ok: false, error: e.message }));
 
   const state = response?.ok

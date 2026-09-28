@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Scores the Gmail message you're reading for phishing using a text classifier plus sender and link checks.",
   "permissions": ["storage"],
-  "host_permissions": ["https://mail.google.com/*", "http://localhost:5080/*"],
+  "host_permissions": ["https://mail.google.com/*", "https://*.googleusercontent.com/*", "http://localhost:5080/*"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "src/background.js"

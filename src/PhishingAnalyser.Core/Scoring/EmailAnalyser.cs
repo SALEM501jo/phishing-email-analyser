@@ -5,7 +5,7 @@ using PhishingAnalyser.Core.Rules;
 
 namespace PhishingAnalyser.Core;
 
-/// <summary>Runs the three signals and fuses them into a verdict with human-readable reasons (Arabic for Arabic emails).</summary>
+/// <summary>Runs every signal (text, sender, links, attachments, reputation) and fuses them into a verdict with human-readable reasons (Arabic for Arabic emails).</summary>
 public sealed class EmailAnalyser(
     IContentClassifier classifier,
     HeaderAnalyser headerAnalyser,
@@ -15,10 +15,12 @@ public sealed class EmailAnalyser(
     ShortLinkExpander? shortLinks = null)
 {
     private const int MaxReasons = 6;
+    private static readonly AttachmentAnalyser Attachments = new();
 
     /// <summary>Full analysis including network reputation lookups (used by the API).</summary>
     public async Task<AnalysisResult> AnalyseAsync(EmailSubmission email, CancellationToken ct = default)
     {
+        email = WithQrLinks(email);
         // Expand shortened links first, so their real destinations go through the link AND reputation checks.
         var expanded = shortLinks is null || email.Links is not { Count: > 0 } ? [] : await shortLinks.ExpandAsync(email.Links, ct);
         if (expanded.Count > 0)
@@ -30,7 +32,7 @@ public sealed class EmailAnalyser(
     }
 
     /// <summary>Offline analysis (text, sender, links) - also used by the trainer's evaluation, where reputation is meaningless for years-old mail.</summary>
-    public AnalysisResult Analyse(EmailSubmission email) => Analyse(email, null, []);
+    public AnalysisResult Analyse(EmailSubmission email) => Analyse(WithQrLinks(email), null, []);
 
     private AnalysisResult Analyse(EmailSubmission email, ComponentResult? reputation, IReadOnlyList<ExpandedLink> expanded)
     {
@@ -44,13 +46,23 @@ public sealed class EmailAnalyser(
                     $"Shortened link {e.ShortUrl} really leads to {DomainUtils.GetHost(e.Destination)}", 0,
                     $"الرابط المختصر {e.ShortUrl} يؤدي فعليًا إلى {DomainUtils.GetHost(e.Destination)}"))],
             };
+        if (email.QrCodeUrls is { Count: > 0 } qr)
+        {
+            // Quishing: a QR code moves the link to the victim's phone, outside the company's mail and web filters.
+            var host = DomainUtils.GetHost(qr[0]) ?? qr[0];
+            var qrFinding = new Finding(LinkAnalyser.Source, "qr-code-link",
+                $"The email contains a QR code linking to {host} - QR codes move you to your phone, away from security filters", 0.2,
+                $"الرسالة تحتوي على رمز QR يؤدي إلى {host} - رموز QR تنقلك إلى هاتفك بعيدًا عن فلاتر الحماية");
+            links = links with { Findings = [.. links.Findings, qrFinding], Score = Scoring.NoisyOr([.. links.Findings.Select(f => f.Weight), qrFinding.Weight]) };
+        }
+        var attachments = Attachments.Analyse(email.Attachments, email.Body);
 
         // The UI language follows the email, independent of whether a model is loaded.
         var language = LanguageHeuristics.Detect(EmailTextNormalizer.Normalize(email.Subject, email.Body)) == Languages.Arabic
             ? Languages.Arabic
             : Languages.English;
 
-        var score = Scoring.NoisyOr([ContentEvidence(content, options), headers.Score, links.Score, reputation?.Score ?? 0]);
+        var score = Scoring.NoisyOr([ContentEvidence(content, options), headers.Score, links.Score, attachments.Score, reputation?.Score ?? 0]);
 
         var verdict = score >= options.PhishingThreshold ? Verdicts.Phishing
             : score >= options.SuspiciousThreshold ? Verdicts.Suspicious
@@ -59,12 +71,13 @@ public sealed class EmailAnalyser(
         return new AnalysisResult(
             verdict,
             Math.Round(score, 3),
-            BuildReasons(content, headers, links, reputation, language),
+            BuildReasons(content, headers, links, reputation, attachments, language),
             new AnalysisBreakdown(
                 content with { Probability = Math.Round(content.Probability, 3), SpamProbability = Math.Round(content.SpamProbability, 3) },
                 headers with { Score = Math.Round(headers.Score, 3) },
                 links with { Score = Math.Round(links.Score, 3) },
-                reputation is null ? null : reputation with { Score = Math.Round(reputation.Score, 3) }),
+                reputation is null ? null : reputation with { Score = Math.Round(reputation.Score, 3) },
+                attachments with { Score = Math.Round(attachments.Score, 3) }),
             BuildLimitations(email, content, reputation, language),
             classifier.Model?.Version,
             language);
@@ -82,11 +95,12 @@ public sealed class EmailAnalyser(
         return weight * content.Probability;
     }
 
-    private static List<string> BuildReasons(ContentResult content, ComponentResult headers, ComponentResult links, ComponentResult? reputation, string language)
+    private static List<string> BuildReasons(ContentResult content, ComponentResult headers, ComponentResult links, ComponentResult? reputation, ComponentResult attachments, string language)
     {
         var arabic = language == Languages.Arabic;
         var reasons = MergeSameDomain(headers.Findings, links.Findings)
             .Concat(reputation?.Findings ?? [])
+            .Concat(attachments.Findings)
             .Where(f => f.Weight > 0)
             .Select(f => (f.Weight, Message: f.In(language)))
             .ToList();
@@ -130,8 +144,16 @@ public sealed class EmailAnalyser(
     private static EmailSubmission WithLinks(EmailSubmission e, IReadOnlyList<EmailLink> links) => new()
     {
         Subject = e.Subject, SenderName = e.SenderName, SenderEmail = e.SenderEmail, ReplyTo = e.ReplyTo,
-        Body = e.Body, RawHeaders = e.RawHeaders, Links = links,
+        Body = e.Body, RawHeaders = e.RawHeaders, Links = links, Attachments = e.Attachments, QrCodeUrls = e.QrCodeUrls,
     };
+
+    /// <summary>QR-code destinations are checked exactly like ordinary links (look-alike domains, blocklists, age ...).</summary>
+    private static EmailSubmission WithQrLinks(EmailSubmission e) =>
+        e.QrCodeUrls is not { Count: > 0 } qr || e.Links?.Any(l => l.Text == QrLinkText) == true
+            ? e
+            : WithLinks(e, [.. e.Links ?? [], .. qr.Take(10).Select(u => new EmailLink(QrLinkText, u))]);
+
+    private const string QrLinkText = "QR code";
 
     /// <summary>
     /// When the sender and the links use the same look-alike domain, say it once ("... - the links use the same

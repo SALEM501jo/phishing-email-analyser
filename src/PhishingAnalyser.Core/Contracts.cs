@@ -13,6 +13,12 @@ public sealed class EmailSubmission
     public string? Body { get; init; }
     public IReadOnlyList<EmailLink>? Links { get; init; }
 
+    /// <summary>Attachment names/types as shown in Gmail (files are never sent).</summary>
+    public IReadOnlyList<Rules.EmailAttachment>? Attachments { get; init; }
+
+    /// <summary>URLs decoded from QR codes in the email's images - decoded in the browser, images never sent.</summary>
+    public IReadOnlyList<string>? QrCodeUrls { get; init; }
+
     /// <summary>
     /// Optional raw RFC 5322 header block (from Gmail's "Show original").
     /// When present, SPF/DKIM/DMARC results and Reply-To are read from it.
@@ -65,7 +71,8 @@ public sealed record AnalysisBreakdown(
     ContentResult Content,
     ComponentResult Headers,
     ComponentResult Links,
-    ComponentResult? Reputation = null);
+    ComponentResult? Reputation = null,
+    ComponentResult? Attachments = null);
 
 public static class Verdicts
 {
