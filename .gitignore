@@ -14,3 +14,11 @@ TestResults/
 ml/.venv/
 ml/*.log
 ml/output/
+
+# Local feedback database
+*.db
+*.db-shm
+*.db-wal
+
+# Extension dev dependencies
+extension/node_modules/

@@ -44,8 +44,13 @@ jobs:
         run: |
           for f in extension/src/*.js extension/options.js; do node --check "$f"; done
           node -e "const m=require('./extension/manifest.json'); if(m.manifest_version!==3) throw new Error('MV3 required')"
-      - name: Package
-        run: cd extension && zip -r ../phishing-analyser-extension.zip . -x '*.DS_Store'
+      - name: Unit tests (Vitest + jsdom)
+        working-directory: extension
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+      - name: Package (runtime files only - no tests, no node_modules)
+        run: cd extension && zip -r ../phishing-analyser-extension.zip manifest.json options.html options.js src vendor icons -x '*.DS_Store'
       - uses: actions/upload-artifact@v4
         with:
           name: chrome-extension

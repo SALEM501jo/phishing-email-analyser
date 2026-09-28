@@ -4,30 +4,64 @@
   <meta charset="utf-8">
   <title>Phishing Email Analyser - Options</title>
   <style>
-    body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; min-width: 380px; color: #1f1f1f; }
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; min-width: 420px; max-width: 560px; color: #1f1f1f; }
+    h2 { font-size: 15px; margin: 22px 0 6px; }
     label { display: block; margin: 12px 0 4px; font-weight: 600; }
     input[type=text], input[type=password] { width: 100%; box-sizing: border-box; padding: 6px 8px; }
     .check { font-weight: 400; display: flex; gap: 8px; align-items: flex-start; }
     small { color: #5f6368; display: block; }
+    .notice { background: #f6f8fa; border-left: 3px solid #0b5cad; padding: 8px 12px; font-size: 13px; }
+    .notice ul { margin: 4px 0; padding-left: 18px; }
     button { margin-top: 16px; padding: 6px 16px; }
-    #status { margin-left: 8px; color: #137333; }
+    #status { margin-left: 8px; }
+    .ok { color: #137333; } .err { color: #c5221f; }
+    table { border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+    td { padding: 2px 10px 2px 0; }
   </style>
 </head>
 <body>
+  <h2>What this extension sends, and where</h2>
+  <div class="notice">
+    When you open an email in Gmail, the extension sends it to <b>the analyser server you configure below</b>, and nowhere else.
+    <ul>
+      <li><b>Full mode</b> (default) sends the subject, sender, body text, links and attachment <i>names</i>.</li>
+      <li><b>Privacy mode</b> sends everything except the body text. The body never leaves your browser.</li>
+      <li>Attachments and images are never uploaded. QR codes are decoded here in the browser.</li>
+      <li>The server doesn't store email content. It logs only the verdict.</li>
+      <li>The server looks up the <i>domains</i> in the email (registration date, blocklists), never the content.</li>
+    </ul>
+  </div>
+
+  <h2>Server</h2>
   <label for="apiUrl">API URL</label>
   <input id="apiUrl" type="text" placeholder="http://localhost:5080">
-  <small>Your self-hosted analyser, e.g. https://phishing.example.com</small>
+  <small>Your self-hosted analyser, e.g. https://phishing.example.com. <b>HTTPS is required</b> for anything other than localhost.</small>
 
   <label for="apiKey">API key (optional)</label>
   <input id="apiKey" type="password" autocomplete="off">
-  <small>Only needed if the server sets <code>ApiKey</code>.</small>
+  <small>Only needed if the server sets <code>ApiKey</code>. Stored in the extension, never exposed to Gmail's page.</small>
+
+  <h2>Privacy</h2>
+  <label class="check"><input type="radio" name="privacyMode" value="full"><span>Full analysis <small>Includes the text classifier (recommended).</small></span></label>
+  <label class="check"><input type="radio" name="privacyMode" value="metadata"><span>Privacy mode: metadata only <small>Sender, links and attachment names only. The text classifier is skipped, so detection is weaker.</small></span></label>
 
   <label class="check">
     <input id="fetchRawHeaders" type="checkbox">
-    <span>Read authentication headers<small>Fetches Gmail's "Show original" view for the open email so SPF, DKIM and DMARC can be checked. Only the header block is sent - never attachments.</small></span>
+    <span>Read authentication headers<small>Fetches Gmail's "Show original" view for the open email so SPF, DKIM and DMARC can be checked. Only the header block is sent, never attachments.</small></span>
+  </label>
+
+  <label class="check">
+    <input id="shareEmailWithFeedback" type="checkbox">
+    <span>Include the email when I report a wrong verdict<small>Off by default. When on, pressing 👍/👎 also sends that one email so it can be used as labelled training data. It is never sent in privacy mode.</small></span>
   </label>
 
   <button id="save">Save</button><span id="status"></span>
+
+  <h2>Diagnostics</h2>
+  <small>How the extension read the last email (which strategy found each part). No email content is shown or stored.
+    If Gmail changes its layout, this shows which part broke. Include it when reporting a problem.</small>
+  <table id="diagnostics"><tr><td>No email scanned yet.</td></tr></table>
+
   <script src="options.js"></script>
 </body>
 </html>

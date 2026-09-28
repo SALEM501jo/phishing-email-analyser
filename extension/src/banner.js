@@ -25,12 +25,15 @@ const BANNER_CSS = `
   .phishing  { --bg: #fdecea; --edge: #f3b8b1; --accent: #c5221f; }
   .suspicious{ --bg: #fef7e0; --edge: #f5d98b; --accent: #b06000; }
   .safe      { --bg: #e6f4ea; --edge: #a8dab5; --accent: #137333; }
-  .pending, .error { --bg: #f1f3f4; --edge: #dadce0; --accent: #5f6368; }
+  .pending, .error, .unsupported { --bg: #f1f3f4; --edge: #dadce0; --accent: #5f6368; }
+  .feedback { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 12px; color: #555; }
+  .feedback button { font: inherit; border: 1px solid #c4c7c5; background: #fff; border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+  .feedback button:hover { background: #f1f3f4; }
 `;
 
 const STRINGS = {
   en: {
-    pill: { phishing: "phishing", suspicious: "suspicious", safe: "safe", pending: "Scanning", error: "Offline" },
+    pill: { phishing: "phishing", suspicious: "suspicious", safe: "safe", pending: "Scanning", error: "Offline", unsupported: "Not checked" },
     title: {
       phishing: "This email looks like phishing",
       suspicious: "Be careful with this email",
@@ -38,11 +41,17 @@ const STRINGS = {
     },
     pending: "Analysing this email for phishing…",
     error: (m) => `Phishing analyser unavailable: ${m}`,
+    unsupported: "Gmail's layout wasn't recognised, so this email couldn't be checked. Please update the extension (details under Options > Diagnostics).",
+    metadataOnly: "Privacy mode: only sender, links and attachment names were checked - the text stayed in your browser.",
+    feedbackQuestion: "Was this verdict right?",
+    feedbackYes: "👍 Yes",
+    feedbackNo: "👎 No",
+    feedbackThanks: "Thanks - your feedback helps improve the model.",
     risk: (n) => `risk ${n}/100`,
     meta: (t, s, l, rep, auth) => `Text classifier ${t} · Sender checks ${s} · Link checks ${l}${rep ? ` · Reputation ${rep}` : ""}${auth ? " · SPF/DKIM/DMARC checked" : ""}`,
   },
   ar: {
-    pill: { phishing: "تصيّد", suspicious: "مشبوهة", safe: "آمنة", pending: "جارٍ الفحص", error: "غير متصل" },
+    pill: { phishing: "تصيّد", suspicious: "مشبوهة", safe: "آمنة", pending: "جارٍ الفحص", error: "غير متصل", unsupported: "لم يُفحص" },
     title: {
       phishing: "هذه الرسالة تبدو محاولة تصيّد احتيالي",
       suspicious: "توخَّ الحذر مع هذه الرسالة",
@@ -50,6 +59,12 @@ const STRINGS = {
     },
     pending: "جارٍ فحص الرسالة بحثًا عن التصيّد…",
     error: (m) => `محلّل التصيّد غير متاح: ${m}`,
+    unsupported: "لم يتم التعرّف على تصميم Gmail، لذلك لم يمكن فحص هذه الرسالة. يرجى تحديث الإضافة (التفاصيل في الخيارات > التشخيص).",
+    metadataOnly: "وضع الخصوصية: تم فحص المرسل والروابط وأسماء المرفقات فقط - بقي نص الرسالة في متصفحك.",
+    feedbackQuestion: "هل كان هذا الحكم صحيحًا؟",
+    feedbackYes: "👍 نعم",
+    feedbackNo: "👎 لا",
+    feedbackThanks: "شكرًا - ملاحظتك تساعد على تحسين النموذج.",
     risk: (n) => `درجة الخطورة ${n}/100`,
     meta: (t, s, l, rep, auth) => `مصنّف النص ${t} · فحص المرسل ${s} · فحص الروابط ${l}${rep ? ` · السمعة ${rep}` : ""}${auth ? " · تم فحص SPF/DKIM/DMARC" : ""}`,
   },
@@ -86,9 +101,11 @@ function bidiText(tag, className, text, rtl) {
   const latinRun = /[A-Za-z0-9'"@][\w.\-@/:%'"&]*(?:\s+[A-Za-z0-9][\w.\-@/:%'"&]*)*/g;
   let last = 0;
   for (const match of text.matchAll(latinRun)) {
+    // Trailing punctuation belongs to the Arabic sentence, not the isolated run (else "Bank:" shows the colon on the wrong side).
+    const run = match[0].replace(/[:;,.!?]+$/, "");
     node.append(text.slice(last, match.index));
-    node.append(el("bdi", null, match[0]));
-    last = match.index + match[0].length;
+    node.append(el("bdi", null, run));
+    last = match.index + run.length;
   }
   node.append(text.slice(last));
   return node;
@@ -108,11 +125,11 @@ function renderInto(card, state) {
   card.setAttribute("dir", lang === "ar" ? "rtl" : "ltr");
   card.setAttribute("lang", lang);
 
-  if (state.status === "pending" || state.status === "error") {
+  if (state.status === "pending" || state.status === "error" || state.status === "unsupported") {
     card.className = `card ${state.status}`;
     const head = el("div", "head");
-    head.append(el("span", "pill", t.pill[state.status]),
-                el("span", "title", state.status === "pending" ? t.pending : t.error(state.message)));
+    const title = { pending: t.pending, error: t.error(state.message), unsupported: t.unsupported }[state.status];
+    head.append(el("span", "pill", t.pill[state.status]), el("span", "title", title));
     card.append(head);
     return;
   }
@@ -145,7 +162,29 @@ function renderInto(card, state) {
   body.append(bidiText("div", "meta", t.meta(
     b.content.evaluated ? pct(b.content.probability) : "n/a", pct(b.headers.score), pct(b.links.score),
     b.reputation?.evaluated ? pct(b.reputation.score) : null, state.usedRawHeaders), rtl));
+  if (state.metadataOnly) body.append(el("div", "meta", `ⓘ ${t.metadataOnly}`));
   for (const note of r.limitations ?? []) body.append(bidiText("div", "meta", `ⓘ ${note}`, rtl));
+  if (state.onFeedback) body.append(feedbackRow(t, state));
 
   card.append(head, bar, body);
+}
+
+/** 👍/👎 buttons; after a click (or on re-render once answered) they're replaced by a thank-you line. */
+function feedbackRow(t, state) {
+  const row = el("div", "feedback");
+  if (state.feedbackSent) {
+    row.append(el("span", null, t.feedbackThanks));
+    return row;
+  }
+  const answer = (correct) => {
+    state.feedbackSent = true;
+    Promise.resolve(state.onFeedback(correct)).catch(() => {});
+    row.replaceChildren(el("span", null, t.feedbackThanks));
+  };
+  const yes = el("button", null, t.feedbackYes);
+  const no = el("button", null, t.feedbackNo);
+  yes.addEventListener("click", (e) => { e.stopPropagation(); answer(true); });
+  no.addEventListener("click", (e) => { e.stopPropagation(); answer(false); });
+  row.append(el("span", null, t.feedbackQuestion), yes, no);
+  return row;
 }

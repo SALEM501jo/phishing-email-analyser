@@ -9,7 +9,13 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const GMAIL_IMAGE = /^https:\/\/([a-z0-9-]+\.googleusercontent\.com|mail\.google\.com)\//i;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== "analyse" || !sender.url?.startsWith("https://mail.google.com/")) return false;
+  if (!sender.url?.startsWith("https://mail.google.com/")) return false;
+
+  if (message?.type === "feedback") {
+    sendFeedback(message).then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
+  if (message?.type !== "analyse") return false;
 
   decodeQrCodes(message.qrImages ?? [])
     .then((qrCodeUrls) => analyse({ ...message.email, qrCodeUrls }))
@@ -18,8 +24,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // keep the channel open for the async response
 });
 
+/** Email content only ever travels over HTTPS - plain HTTP is accepted for this machine alone. */
+function assertSecure(apiUrl) {
+  const url = new URL(apiUrl);
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local))
+    throw new Error("API URL must use https:// (see extension options)");
+}
+
 async function analyse(email) {
   const { apiUrl, apiKey } = await chrome.storage.sync.get(DEFAULTS);
+  assertSecure(apiUrl);
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers["X-Api-Key"] = apiKey;
 
@@ -34,6 +49,40 @@ async function analyse(email) {
   if (res.status === 429) throw new Error("rate limited, try again in a minute");
   if (!res.ok) throw new Error(`API returned ${res.status}`);
   return res.json();
+}
+
+/**
+ * 👍/👎 feedback. By default only what the API already returned is sent back (verdict, score, reason codes,
+ * model version) - enough to measure false positives/negatives. The email itself is attached only when the
+ * user opted in on the options page, so it can be used as labelled training data.
+ */
+async function sendFeedback({ correct, result, email }) {
+  const { apiUrl, apiKey, shareEmailWithFeedback } = await chrome.storage.sync.get({ ...DEFAULTS, shareEmailWithFeedback: false });
+  assertSecure(apiUrl);
+  const b = result.breakdown ?? {};
+  const reasonCodes = [b.headers, b.links, b.reputation, b.attachments, b.obfuscation]
+    .flatMap((c) => c?.findings ?? []).filter((f) => f.weight > 0).map((f) => f.code);
+
+  const headers = { "Content-Type": "application/json" };
+  if (apiKey) headers["X-Api-Key"] = apiKey;
+  const res = await fetch(`${apiUrl.replace(/\/+$/, "")}/api/v1/feedback`, {
+    method: "POST",
+    headers,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    body: JSON.stringify({
+      correct,
+      verdict: result.verdict,
+      score: result.score,
+      modelVersion: result.modelVersion,
+      language: result.language,
+      reasonCodes: [...new Set(reasonCodes)],
+      phishingProbability: b.content?.probability,
+      email: shareEmailWithFeedback && email
+        ? { subject: email.subject, senderEmail: email.senderEmail, body: email.body.slice(0, 20000), links: email.links.slice(0, 50) }
+        : null,
+    }),
+  });
+  if (!res.ok) throw new Error(`feedback API returned ${res.status}`);
 }
 
 /**

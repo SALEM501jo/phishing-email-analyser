@@ -1,0 +1,12 @@
+{
+  "name": "phishing-analyser-extension",
+  "private": true,
+  "description": "Unit tests for the Chrome extension (the extension itself has no build step or runtime dependencies).",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "25.0.1",
+    "vitest": "2.1.8"
+  }
+}
