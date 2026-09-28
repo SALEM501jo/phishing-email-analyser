@@ -22,20 +22,61 @@ def gpu_temperature():
         return None
 
 
-def cpu_temperature():
-    """
-    Hottest ACPI thermal zone in °C (Windows performance counter - readable without admin rights, unlike the
-    per-core sensors). It measures around the processor, so it usually reads a few degrees below the core
-    temperature monitoring apps show. None if unavailable.
-    """
+LHM_URL = os.environ.get("ML_LHM_URL", "http://localhost:8085/data.json")
+# The ACPI thermal zone read 92 C while MSI Center (real CPU package sensor) read 81 C at the same moment.
+ACPI_OFFSET = int(os.environ.get("ML_ACPI_OFFSET", 11))
+
+
+def _lhm_cpu_temperature():
+    """CPU Package temperature from LibreHardwareMonitor's local web server (the same sensor MSI Center shows)."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(LHM_URL, timeout=3) as response:
+            tree = json.load(response)
+    except (OSError, ValueError):
+        return None
+
+    readings = {}
+    def walk(node):
+        sensor = node.get("SensorId", "")
+        if ("/intelcpu/" in sensor or "/amdcpu/" in sensor) and "/temperature/" in sensor:
+            try:
+                readings[node.get("Text", "")] = float(str(node.get("Value", "")).split()[0].replace(",", "."))
+            except (ValueError, IndexError):
+                pass
+        for child in node.get("Children", []):
+            walk(child)
+    walk(tree)
+    for preferred in ("CPU Package", "Core Max", "Core Average"):
+        if preferred in readings:
+            return round(readings[preferred])
+    return round(max(readings.values())) if readings else None
+
+
+def _acpi_cpu_temperature():
+    """Hottest ACPI thermal zone (no admin rights needed), corrected by the offset measured against MSI Center."""
     try:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
              "(Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation | Measure-Object Temperature -Maximum).Maximum"],
             capture_output=True, text=True, timeout=15)
-        return round(int(out.stdout.strip()) - 273.15)
+        return round(int(out.stdout.strip()) - 273.15) - ACPI_OFFSET
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
+
+
+def cpu_temperature():
+    """
+    Real CPU temperature in °C. Preferred source: LibreHardwareMonitor (reads the CPU package sensor; run it as
+    administrator with Options > Remote Web Server enabled). Fallback: the ACPI thermal zone, which reads ~11 C
+    high on this laptop and is corrected for that. None if neither is available.
+    """
+    return _lhm_cpu_temperature() or _acpi_cpu_temperature()
+
+
+def cpu_temperature_source():
+    return "LibreHardwareMonitor (CPU Package)" if _lhm_cpu_temperature() is not None else f"ACPI thermal zone - {ACPI_OFFSET} C"
 
 
 # Limits (°C). CPU limit chosen by the owner of this laptop; overridable without code changes.
@@ -75,6 +116,8 @@ def beat():
 
 
 def start(limit_seconds=600):
+    print(f"thermal guard: GPU pause {GPU_PAUSE}/resume {GPU_RESUME} C, CPU pause {CPU_PAUSE}/resume {CPU_RESUME} C "
+          f"(CPU source: {cpu_temperature_source()})", flush=True)
     def watch():
         while True:
             time.sleep(30)
