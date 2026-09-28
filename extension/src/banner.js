@@ -39,7 +39,7 @@ const STRINGS = {
     pending: "Analysing this email for phishing…",
     error: (m) => `Phishing analyser unavailable: ${m}`,
     risk: (n) => `risk ${n}/100`,
-    meta: (t, s, l, auth) => `Text classifier ${t} · Sender checks ${s} · Link checks ${l}${auth ? " · SPF/DKIM/DMARC checked" : ""}`,
+    meta: (t, s, l, rep, auth) => `Text classifier ${t} · Sender checks ${s} · Link checks ${l}${rep ? ` · Reputation ${rep}` : ""}${auth ? " · SPF/DKIM/DMARC checked" : ""}`,
   },
   ar: {
     pill: { phishing: "تصيّد", suspicious: "مشبوهة", safe: "آمنة", pending: "جارٍ الفحص", error: "غير متصل" },
@@ -51,7 +51,7 @@ const STRINGS = {
     pending: "جارٍ فحص الرسالة بحثًا عن التصيّد…",
     error: (m) => `محلّل التصيّد غير متاح: ${m}`,
     risk: (n) => `درجة الخطورة ${n}/100`,
-    meta: (t, s, l, auth) => `مصنّف النص ${t} · فحص المرسل ${s} · فحص الروابط ${l}${auth ? " · تم فحص SPF/DKIM/DMARC" : ""}`,
+    meta: (t, s, l, rep, auth) => `مصنّف النص ${t} · فحص المرسل ${s} · فحص الروابط ${l}${rep ? ` · السمعة ${rep}` : ""}${auth ? " · تم فحص SPF/DKIM/DMARC" : ""}`,
   },
 };
 
@@ -143,7 +143,8 @@ function renderInto(card, state) {
   const b = r.breakdown;
   const pct = (x) => `${Math.round(x * 100)}%`;
   body.append(bidiText("div", "meta", t.meta(
-    b.content.evaluated ? pct(b.content.probability) : "n/a", pct(b.headers.score), pct(b.links.score), state.usedRawHeaders), rtl));
+    b.content.evaluated ? pct(b.content.probability) : "n/a", pct(b.headers.score), pct(b.links.score),
+    b.reputation?.evaluated ? pct(b.reputation.score) : null, state.usedRawHeaders), rtl));
   for (const note of r.limitations ?? []) body.append(bidiText("div", "meta", `ⓘ ${note}`, rtl));
 
   card.append(head, bar, body);

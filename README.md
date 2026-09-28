@@ -5,27 +5,48 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
 [![CI/CD](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml)
 
 ```
-┌──────────── Gmail tab ────────────┐          ┌──────────── ASP.NET Core API (Docker) ─────────────┐
-│ content script                    │          │  POST /api/v1/analyse                              │
-│  • reads subject/sender/body/links│  JSON    │   ├─ Text classifier  (ML.NET, TF-IDF + logistic)  │
-│    from the DOM                   │ ───────► │   ├─ Sender checks    (display name, Reply-To,     │
-│  • optional: raw headers via      │ (via     │   │                    look-alike domains, SPF/     │
-│    Gmail "Show original"          │ service  │   │                    DKIM/DMARC from headers)     │
-│  • renders verdict banner         │ worker)  │   ├─ Link checks      (typosquats, IP URLs, text≠href│
-│    (closed shadow DOM)            │ ◄─────── │   │                    shorteners, risky TLDs)      │
-└───────────────────────────────────┘ verdict  │   └─ Fusion: noisy-OR → phishing / suspicious / safe│
-                                               └─────────────────────────────────────────────────────┘
+┌──────────── Gmail tab ─────────────┐          ┌──────────── ASP.NET Core API (Docker) ────────────────┐
+│ content script                     │          │  POST /api/v1/analyse                                 │
+│  • subject, sender, body, links,   │  JSON    │   ├─ Text classifier (ML.NET; EN/AR transformer next)  │
+│    attachment NAMES (from the DOM) │ ───────► │   ├─ Sender checks   display name, Reply-To, look-alike│
+│  • optional raw headers via        │ (via     │   │                  domains, SPF/DKIM/DMARC/compauth   │
+│    Gmail "Show original"           │ service  │   ├─ Link checks     typosquats, homoglyphs, IP URLs,   │
+│ service worker                     │ worker)  │   │                  text≠href, hosting platforms       │
+│  • decodes QR codes locally (jsQR) │          │   ├─ Attachments     executables, ISO, HTML/SVG, macros,│
+│  • calls the API                   │ ◄─────── │   │                  double extensions, RTLO names      │
+│ banner (closed shadow DOM, EN/AR)  │ verdict  │   ├─ Obfuscation     mixed-alphabet words ("Pаypal")    │
+└────────────────────────────────────┘          │   ├─ Reputation      RDAP domain age, URLhaus/OpenPhish,│
+                                                │   │                  optional Safe Browsing; short links│
+                                                │   │                  expanded (SSRF-guarded)            │
+                                                │   └─ Fusion: noisy-OR → phishing / suspicious / safe    │
+                                                └──────────────────────────────────────────────────────────┘
 ```
 
-## Why three signals
+## Why several signals
 
 | Signal | What it catches | Why this technique |
 |---|---|---|
 | **Text classifier** (ML) | Urgency, credential requests, impersonation phrasing, e.g. "verify your account within 24 hours", "kindly update your payment" | These are patterns in free text with endless variants. They're learned from ~7,700 real phishing and fraud emails (3,100 of them from 2022–2026), not written as `if` statements. |
-| **Sender checks** (rules) | `PayPal <support@gmail.com>`, `paypa1.com`, Reply-To pointing elsewhere, SPF/DKIM/DMARC failures | These are crisp, verifiable facts. A rule is exact and explainable, and needs no training data. |
-| **Link checks** (rules) | `www.dhl.com` text linking to `dhl-parcel-track.info`, raw IP URLs, `paypal.com.verify.xyz`, homoglyphs | Same reason: they're deterministic properties of a URL. |
+| **Sender checks** (rules) | `PayPal <support@gmail.com>`, `paypa1.com`, Reply-To pointing elsewhere, SPF/DKIM/DMARC/compauth failures | These are crisp, verifiable facts. A rule is exact and explainable, and needs no training data. |
+| **Link checks** (rules) | `www.dhl.com` text linking to `dhl-parcel-track.info`, raw IP URLs, `paypal.com.verify.xyz`, homoglyphs, brand pages on `pages.dev` / Google Sites | Same reason: they're deterministic properties of a URL. |
+| **Attachments** (rules) | `invoice.pdf.exe`, `.iso`, `.html`/`.svg` fake login pages, macro files, archives whose password is in the email | Judged from **file names only**. Files are never downloaded or opened. |
+| **Reputation** (network) | Domains registered days ago, URLs already reported on URLhaus / OpenPhish (and Google Safe Browsing, optional) | Catches attacks whose wording and links *look* normal. |
 
-The signals are fused with a **noisy-OR**: `score = 1 − (1 − 0.9·p_text)(1 − s_sender)(1 − s_links)`, where each rule score is itself a noisy-OR of its findings' weights. One strong signal is enough to flag an email, weak signals add up, and a single weak signal can't dominate. The thresholds are **calibrated on held-out modern mail**, not hand-picked: currently ≥ 0.50 for phishing and ≥ 0.25 for suspicious. They're kept within bounds so that no single weak rule can produce a verdict on its own. They ship with the model in `models/model-info.json`, and `appsettings.json` can override them.
+The signals are fused with a **noisy-OR**: `score = 1 − Π(1 − sᵢ)`. The text signal enters as `0.9·p_text`, and each rule score is itself a noisy-OR of its findings' weights. One strong signal is enough to flag an email, weak signals add up, and a single weak signal can't dominate. The thresholds are **calibrated on held-out modern mail**, not hand-picked: currently ≥ 0.50 for phishing and ≥ 0.25 for suspicious. They're kept within bounds so that no single weak rule can produce a verdict on its own. They ship with the model in `models/model-info.json`, and `appsettings.json` can override them.
+
+### Rules and reputation: design notes
+- **Public Suffix List, including its PRIVATE section.** The full PSL is bundled, so `gov.jo` and `com.sa` parse correctly. Its private section lists hosting platforms (`github.io`, `pages.dev`, `web.app`, `square.site`…), so `paypal-login.pages.dev` is treated as its *own* site and never inherits a brand's trust. The first entries of the live OpenPhish feed while this was built were `ledger-com-strts.pages.dev` and `square-nddax-en-us.square.site`.
+- **Editable brand catalogue.** `Data/brands.json` holds global brands plus Jordanian and Gulf brands with Arabic names (البنك العربي، أرامكس، الراجحي…). Point `Brands:Path` at your own copy to add a local bank, a university or an employer.
+- **Domain age via RDAP.** Newly registered domains are among the strongest phishing indicators. The system is cached, time-boxed (2.5 s) and never blocks the verdict; a failure is reported as "not checked", never as clean. ccTLDs without RDAP (`.jo`, `.sa`, `.io`) show "age unknown".
+- **Threat feeds** are downloaded every 30 minutes and matched *locally*, so no URL from your mail is sent to them. Whole-host matches are skipped for brands' own hosts and shared platforms, because attackers also abuse `github.com`.
+- **Short-link expansion is an SSRF surface, and is treated as one.**
+  - It only contacts known shorteners and reads the `Location` header.
+  - It **stops before the destination**, so the attacker's server is never contacted and never learns the email was opened.
+  - Private, loopback, link-local (incl. cloud metadata `169.254.169.254`), CGNAT and multicast addresses are refused **at connect time**, on the address actually dialled. That also defeats DNS rebinding.
+  - HEAD only, 5 hops, 3 s.
+- **QR codes ("quishing")** are decoded **in the browser**, so images never leave the machine. Only images Gmail itself serves are read, never the sender's servers, where an image fetch (a tracking pixel) would confirm the email was opened. The vendored jsQR is pinned and checksum-verified (`extension/vendor/README.md`).
+
+**Privacy trade-off.** RDAP lookups (and Safe Browsing, if you enable it) reveal to those services *which domains* appear in your mail, never its content. Everything is switchable in `appsettings.json` → `Reputation`.
 
 ## The ML model
 
@@ -98,7 +119,7 @@ The extension reads the rendered Gmail DOM instead of calling the Gmail API. Thi
 ## Running locally
 
 ```bash
-dotnet test                                                     # 58 tests: rules, scoring, language, end-to-end API with the real model
+dotnet test                                                     # 149 tests: rules, Arabic, reputation (fake HTTP), SSRF guard, end-to-end API
 dotnet run --project src/PhishingAnalyser.Api --launch-profile http   # http://localhost:5080/swagger
 ```
 
