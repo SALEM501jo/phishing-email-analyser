@@ -28,3 +28,5 @@ ml/setup-progress.txt
 kaggle/bundle/
 kaggle/*.zip
 results.zip
+__pycache__/
+*.pyc
