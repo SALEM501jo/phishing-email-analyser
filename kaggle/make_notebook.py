@@ -14,11 +14,20 @@ Runs the GPU-heavy steps on Kaggle's free GPU, because the owner's laptop GPU cr
 Every step is resumable. If the session ends early, run again and it continues."""),
 
     ("code", """# 1. Copy the bundle to a writable project folder, install the pinned tooling
-import glob, os, shutil, subprocess
-src = os.path.dirname(os.path.dirname(glob.glob('/kaggle/input/**/trainer/PhishingAnalyser.Trainer', recursive=True)[0]))
+# Kaggle sometimes unpacks an uploaded zip into folders and sometimes keeps it as one .zip file - handle both.
+import glob, os, shutil, subprocess, zipfile
 PROJECT = '/kaggle/working/project'
-if not os.path.exists(PROJECT):
-    shutil.copytree(src, PROJECT)
+print('input files:', [p for p in glob.glob('/kaggle/input/**', recursive=True) if os.path.isfile(p)][:10])
+if not os.path.exists(f'{PROJECT}/trainer/PhishingAnalyser.Trainer'):
+    unpacked = glob.glob('/kaggle/input/**/trainer/PhishingAnalyser.Trainer', recursive=True)
+    zips = glob.glob('/kaggle/input/**/*.zip', recursive=True)
+    if unpacked:
+        shutil.copytree(os.path.dirname(os.path.dirname(unpacked[0])), PROJECT, dirs_exist_ok=True)
+    elif zips:
+        with zipfile.ZipFile(zips[0]) as z:
+            z.extractall(PROJECT)
+    else:
+        raise FileNotFoundError('Bundle not found - attach the phishing-analyser-bundle dataset (right panel > Add Input)')
 os.chmod(f'{PROJECT}/trainer/PhishingAnalyser.Trainer', 0o755)
 os.chdir(PROJECT)
 os.environ.update(ML_THERMAL_GUARD='off', PYTHONUNBUFFERED='1', DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1')
