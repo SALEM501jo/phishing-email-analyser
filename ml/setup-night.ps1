@@ -22,7 +22,12 @@ New-Item -ItemType Directory -Force "$cache\pip", "$cache\huggingface", "$cache\
 
 function Log([string]$line, [string]$color = "Gray") {
     Write-Host $line -ForegroundColor $color
-    Add-Content -Path $progress -Value $line -Encoding UTF8
+    # Add-Content opens the file exclusively; if anything is reading it at that instant (an editor, a watcher,
+    # antivirus), retry briefly and otherwise drop the log line - logging must never disturb the actual work.
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        try { [System.IO.File]::AppendAllText($progress, $line + [Environment]::NewLine); return }
+        catch [System.IO.IOException] { Start-Sleep -Milliseconds 50 }
+    }
 }
 
 function Step([string]$name) { Log "`n==== $(Get-Date -Format HH:mm:ss)  $name ====" "Cyan" }
