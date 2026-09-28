@@ -20,6 +20,10 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: dotnet restore
+      - name: Fail on known-vulnerable NuGet packages (incl. transitive)
+        run: |
+          dotnet list package --vulnerable --include-transitive | tee vulnerable.txt
+          ! grep -q "has the following vulnerable packages" vulnerable.txt
       - run: dotnet build --no-restore -c Release
       - run: dotnet test --no-build -c Release --logger "trx;LogFileName=results.trx" --results-directory TestResults
       - uses: actions/upload-artifact@v4

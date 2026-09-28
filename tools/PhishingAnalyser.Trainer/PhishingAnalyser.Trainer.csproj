@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="CsvHelper" Version="33.0.1" />
-    <PackageReference Include="MimeKit" Version="4.8.0" />
+    <PackageReference Include="MimeKit" Version="4.18.1" />
   </ItemGroup>
 
   <ItemGroup>
