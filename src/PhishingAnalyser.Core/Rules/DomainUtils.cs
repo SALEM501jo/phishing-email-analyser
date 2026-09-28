@@ -2,19 +2,35 @@ using System.Globalization;
 using System.Net;
 using System.Net.Mail;
 using System.Text;
+using Nager.PublicSuffix;
+using Nager.PublicSuffix.Models;
+using Nager.PublicSuffix.RuleProviders;
 
 namespace PhishingAnalyser.Core.Rules;
 
 public static class DomainUtils
 {
-    // A small subset of the Public Suffix List - enough for the brands and regions this demo cares about.
-    // A production build would use the full PSL (e.g. the Nager.PublicSuffix package).
+    // Fallback only (if the bundled Public Suffix List can't be loaded): the multi-label suffixes that matter most here.
     private static readonly HashSet<string> MultiLabelSuffixes = new(StringComparer.OrdinalIgnoreCase)
     {
         "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "co.nz", "co.jp", "com.br", "com.cn",
         "com.jo", "gov.jo", "edu.jo", "net.jo", "org.jo", "com.sa", "gov.sa", "com.eg", "co.in", "co.za",
         "com.tr", "com.mx", "ae.org", "co.il",
     };
+
+    /// <summary>
+    /// The full Public Suffix List (bundled, ~10k rules incl. its PRIVATE section of hosting platforms), so
+    /// "x.pages.dev" is correctly a site of its own and exotic suffixes like "gov.jo" or "com.sa" parse right.
+    /// </summary>
+    private static readonly Lazy<DomainParser?> Psl = new(() =>
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Data", "public_suffix_list.dat");
+        if (!File.Exists(path))
+            return null;
+        var provider = new LocalFileRuleProvider(path);
+        provider.BuildAsync().GetAwaiter().GetResult();
+        return new DomainParser(provider);
+    });
 
     private static readonly HashSet<string> FreeMailDomains = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -61,11 +77,14 @@ public static class DomainUtils
     public static bool IsIpAddress(string host) =>
         IPAddress.TryParse(host.Trim('[', ']'), out _);
 
-    /// <summary>"login.secure.paypal.co.uk" -> "paypal.co.uk"; "evil.xyz" -> "evil.xyz".</summary>
+    /// <summary>"login.secure.paypal.co.uk" -> "paypal.co.uk"; "paypal-login.pages.dev" -> itself (pages.dev is a hosting platform).</summary>
     public static string RegistrableDomain(string host)
     {
         if (IsIpAddress(host))
             return host;
+
+        if (Psl.Value is { } parser && parser.TryParse(host, out var info) && !string.IsNullOrEmpty(info?.RegistrableDomain))
+            return info.RegistrableDomain;
 
         var labels = host.Split('.', StringSplitOptions.RemoveEmptyEntries);
         if (labels.Length <= 2)
@@ -75,6 +94,19 @@ public static class DomainUtils
         return MultiLabelSuffixes.Contains(lastTwo)
             ? $"{labels[^3]}.{lastTwo}"
             : lastTwo;
+    }
+
+    /// <summary>
+    /// The hosting-platform suffix when <paramref name="host"/> is a site published on a platform from the PSL's
+    /// PRIVATE section (e.g. "github.io" for "someone.github.io"); null otherwise.
+    /// </summary>
+    public static string? PrivatePlatformSuffix(string host)
+    {
+        if (IsIpAddress(host) || Psl.Value is not { } parser || !parser.TryParse(host, out var info) || info?.TopLevelDomainRule is null)
+            return null;
+        return info.TopLevelDomainRule.Division == TldRuleDivision.Private && !string.IsNullOrEmpty(info.RegistrableDomain)
+            ? info.TopLevelDomain
+            : null;
     }
 
     /// <summary>The label people actually read: "paypal" for "paypal.co.uk".</summary>

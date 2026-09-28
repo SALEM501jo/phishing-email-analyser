@@ -58,7 +58,7 @@ public sealed class EmailAnalyser(
     private static List<string> BuildReasons(ContentResult content, ComponentResult headers, ComponentResult links, string language)
     {
         var arabic = language == Languages.Arabic;
-        var reasons = headers.Findings.Concat(links.Findings)
+        var reasons = MergeSameDomain(headers.Findings, links.Findings)
             .Where(f => f.Weight > 0)
             .Select(f => (f.Weight, Message: f.In(language)))
             .ToList();
@@ -97,6 +97,29 @@ public sealed class EmailAnalyser(
             .Distinct()
             .Take(MaxReasons)
             .ToList();
+    }
+
+    /// <summary>
+    /// When the sender and the links use the same look-alike domain, say it once ("... - the links use the same
+    /// domain") instead of two near-identical reasons. Scoring is unaffected; this only tidies the explanation.
+    /// </summary>
+    private static IEnumerable<Finding> MergeSameDomain(IReadOnlyList<Finding> headerFindings, IReadOnlyList<Finding> linkFindings)
+    {
+        var sender = headerFindings.FirstOrDefault(f => f.Code == "lookalike-sender" && f.Target is not null);
+        foreach (var f in headerFindings)
+        {
+            var sameInLinks = f == sender && linkFindings.Any(l => l.Code == "lookalike-domain" && l.Target == f.Target);
+            yield return sameInLinks
+                ? f with
+                {
+                    Message = f.Message + " - the links use the same domain",
+                    MessageArabic = f.MessageArabic + " - والروابط تستخدم النطاق نفسه",
+                }
+                : f;
+        }
+        foreach (var l in linkFindings)
+            if (!(sender is not null && l.Code == "lookalike-domain" && l.Target == sender.Target))
+                yield return l;
     }
 
     private static List<string> BuildLimitations(EmailSubmission email, ContentResult content, string language)

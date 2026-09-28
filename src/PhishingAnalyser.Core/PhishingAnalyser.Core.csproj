@@ -8,10 +8,17 @@
     <PackageReference Include="Microsoft.ML" Version="4.0.2" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
     <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <PackageReference Include="Nager.PublicSuffix" Version="3.8.0" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="PhishingAnalyser.Tests" />
+  </ItemGroup>
+
+  <!-- Brand catalogue and the Public Suffix List ship next to the binaries (editable, no network needed at startup). -->
+  <ItemGroup>
+    <None Include="Data\brands.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Data\public_suffix_list.dat" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

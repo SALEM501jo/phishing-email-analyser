@@ -24,7 +24,8 @@ public sealed class EmailSubmission
 /// A single piece of evidence. <see cref="Weight"/> is in [0,1] and is read as
 /// "probability this signal alone indicates phishing"; 0 means informational.
 /// </summary>
-public sealed record Finding(string Source, string Code, string Message, double Weight, string? MessageArabic = null)
+/// <param name="Target">The domain the finding is about, when there is one - lets duplicate findings be merged.</param>
+public sealed record Finding(string Source, string Code, string Message, double Weight, string? MessageArabic = null, string? Target = null)
 {
     public string In(string language) => language == Content.Languages.Arabic && MessageArabic is not null ? MessageArabic : Message;
 }

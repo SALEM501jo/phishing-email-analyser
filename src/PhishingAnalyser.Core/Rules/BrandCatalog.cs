@@ -35,75 +35,50 @@ public sealed record BrandMatch(Brand Brand, string Kind, string Host, string Re
 }
 
 /// <summary>
-/// The brands most commonly impersonated in phishing, plus regional ones (Jordan / Gulf) with their Arabic names.
-/// Arabic keywords that are also everyday words or common first names (e.g. زين "fine"/Zain, اتصالات "communications",
-/// كريم Kareem) are deliberately left out or qualified, so a person's name isn't mistaken for a brand.
+/// The brands most commonly impersonated in phishing (global + Jordan/Gulf, English + Arabic names) and the
+/// "user-content" hosts where anyone can publish under a platform's domain. Loaded from Data/brands.json so the
+/// list can be extended (local banks, a university, an employer) without recompiling.
 /// </summary>
 public sealed class BrandCatalog
 {
-    public static BrandCatalog Default { get; } = new(
-    [
-        new("PayPal", ["paypal.com", "paypal.me", "paypalobjects.com"], ["paypal", "باي بال", "بايبال"]),
-        new("Microsoft", ["microsoft.com", "office.com", "office365.com", "outlook.com", "live.com", "microsoftonline.com", "sharepoint.com", "onedrive.com", "msn.com"], ["microsoft", "office365", "outlook", "onedrive", "sharepoint", "مايكروسوفت", "اوتلوك"]),
-        new("Apple", ["apple.com", "icloud.com", "me.com"], ["apple", "icloud", "itunes", "ابل ايدي", "اي كلاود"]),
-        new("Google", ["google.com", "gmail.com", "googlemail.com", "youtube.com", "gstatic.com", "googleusercontent.com", "withgoogle.com", "googleapis.com", "google-analytics.com", "googletagmanager.com", "doubleclick.net", "goo.gl"], ["google", "gmail", "جوجل", "غوغل", "جيميل"]),
-        new("Amazon", ["amazon.com", "amazon.co.uk", "amazon.de", "amazon.ae", "amazon.sa", "amazonaws.com", "amazonses.com"], ["amazon", "امازون"]),
-        new("Netflix", ["netflix.com"], ["netflix", "نتفلكس", "نتفليكس"]),
-        new("Meta", ["facebook.com", "facebookmail.com", "fb.com", "instagram.com", "meta.com", "whatsapp.com"], ["facebook", "instagram", "whatsapp", "فيسبوك", "فيس بوك", "انستغرام", "انستجرام", "واتساب", "واتس اب"]),
-        new("LinkedIn", ["linkedin.com", "lnkd.in"], ["linkedin", "لينكد ان"]),
-        new("DHL", ["dhl.com", "dhl.de"], ["dhl", "دي اتش ال"]),
-        new("FedEx", ["fedex.com"], ["fedex", "فيدكس", "فيديكس"]),
-        new("UPS", ["ups.com"], ["ups"]),
-        new("USPS", ["usps.com"], ["usps"]),
-        new("Aramex", ["aramex.com"], ["aramex", "ارامكس"]),
-        new("Chase", ["chase.com", "jpmorgan.com"], ["chase"]),
-        new("Bank of America", ["bankofamerica.com", "bofa.com"], ["bankofamerica"]),
-        new("Wells Fargo", ["wellsfargo.com"], ["wellsfargo"]),
-        new("HSBC", ["hsbc.com", "hsbc.co.uk"], ["hsbc"]),
-        new("Arab Bank", ["arabbank.com", "arabbank.jo"], ["arabbank", "arab bank", "البنك العربي"]),
-        new("Dropbox", ["dropbox.com", "dropboxmail.com"], ["dropbox"]),
-        new("DocuSign", ["docusign.com", "docusign.net"], ["docusign"]),
-        new("Adobe", ["adobe.com"], ["adobe"]),
-        new("GitHub", ["github.com", "githubusercontent.com", "github.io"], ["github"]),
-        new("Coinbase", ["coinbase.com"], ["coinbase"]),
-        new("Binance", ["binance.com"], ["binance"]),
-        new("Spotify", ["spotify.com"], ["spotify"]),
-        new("eBay", ["ebay.com", "ebay.co.uk"], ["ebay"]),
-        new("Steam", ["steampowered.com", "steamcommunity.com"], ["steam"]),
-        new("IRS", ["irs.gov"], ["irs"]),
-        new("Zain", ["jo.zain.com", "zain.com"], ["zain jordan", "zain jo", "زين الاردن", "زين للاتصالات"]),
-        new("Orange", ["orange.jo", "orange.com"], ["orange jordan", "orange jo", "اورنج"]),
+    private sealed record CatalogFile(List<Brand> Brands, List<string> UserContentHosts);
 
-        // Jordan
-        new("Umniah", ["umniah.com"], ["umniah", "امنيه"]),
-        new("Jordan Post", ["jopost.com.jo"], ["jordan post", "البريد الاردني"]),
-        new("eFAWATEERcom", ["efawateercom.jo"], ["efawateercom", "e fawateercom", "اي فواتيركم", "فواتيركم"]),
-        new("CliQ (JoPACC)", ["jopacc.com"], ["jopacc", "cliq", "كليك"]),
-        new("Housing Bank", ["hbtf.com"], ["housing bank", "بنك الاسكان"]),
-        new("Jordan Islamic Bank", ["jordanislamicbank.com"], ["jordan islamic bank", "البنك الاسلامي الاردني"]),
-        new("Cairo Amman Bank", ["cab.jo"], ["cairo amman bank", "بنك القاهره عمان"], MatchLabelInDomains: false),
-        new("Capital Bank", ["capitalbank.jo"], ["capital bank", "كابيتال بنك"]),
-        new("Bank al Etihad", ["bankaletihad.com"], ["bank al etihad", "بنك الاتحاد"]),
+    public static string DefaultPath => Path.Combine(AppContext.BaseDirectory, "Data", "brands.json");
 
-        // Gulf
-        new("Al Rajhi Bank", ["alrajhibank.com.sa"], ["al rajhi", "alrajhi", "الراجحي"]),
-        new("STC", ["stc.com.sa"], ["stc pay", "اس تي سي"], MatchLabelInDomains: false),
-        new("Saudi Post (SPL)", ["splonline.com.sa"], ["saudi post", "البريد السعودي", "سبل"]),
-        new("Emirates NBD", ["emiratesnbd.com"], ["emirates nbd", "الامارات دبي الوطني"]),
-        new("e& (Etisalat)", ["etisalat.ae", "eand.com"], ["etisalat"]),
-        new("noon", ["noon.com"], []),
-        new("Careem", ["careem.com"], ["careem"]),
-        new("Talabat", ["talabat.com"], ["talabat"]),
-    ]);
+    public static BrandCatalog Default { get; } = Load(DefaultPath);
+
+    public static BrandCatalog Load(string path)
+    {
+        var file = System.Text.Json.JsonSerializer.Deserialize<CatalogFile>(File.ReadAllText(path),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))
+            ?? throw new InvalidDataException($"Empty brand catalogue: {path}");
+        return new BrandCatalog(file.Brands, file.UserContentHosts);
+    }
 
     private const int MinFuzzyLength = 5;
 
     public IReadOnlyList<Brand> Brands { get; }
+    public IReadOnlyList<string> UserContentHosts { get; }
 
-    public BrandCatalog(IReadOnlyList<Brand> brands) => Brands = brands;
+    public BrandCatalog(IReadOnlyList<Brand> brands, IReadOnlyList<string>? userContentHosts = null)
+    {
+        Brands = brands;
+        UserContentHosts = userContentHosts ?? [];
+    }
 
+    /// <summary>
+    /// The platform a host belongs to when anyone can publish there (someone.github.io, x.pages.dev,
+    /// sites.google.com/...). Content on these hosts is not the platform's own, so it gets no brand trust.
+    /// </summary>
+    public string? UserContentPlatform(string host) =>
+        DomainUtils.PrivatePlatformSuffix(host)
+        ?? UserContentHosts.FirstOrDefault(h => DomainUtils.IsSameOrSubdomain(host, h));
+
+    /// <summary>The brand that genuinely owns this host - never for user-published content on a platform.</summary>
     public Brand? OwnerOf(string host) =>
-        Brands.FirstOrDefault(b => b.Domains.Any(d => DomainUtils.IsSameOrSubdomain(host, d)));
+        UserContentPlatform(host) is not null
+            ? null
+            : Brands.FirstOrDefault(b => b.Domains.Any(d => DomainUtils.IsSameOrSubdomain(host, d)));
 
     /// <summary>
     /// Checks whether a host that is NOT owned by a brand is dressed up as one:
@@ -116,6 +91,10 @@ public sealed class BrandCatalog
             return null;
 
         var registrable = DomainUtils.RegistrableDomain(host);
+        // e.g. sites.google.com: the host really is Google's, so it can't imitate Google - but what's published
+        // there is anyone's; LinkAnalyser checks that part (path) separately.
+        if (Brands.Any(b => b.Domains.Any(d => DomainUtils.IsSameOrSubdomain(registrable, d))))
+            return null;
         var label = DomainUtils.SecondLevelLabel(DomainUtils.ToUnicode(registrable));
         var folded = DomainUtils.FoldHomoglyphs(label);
         var subdomainPart = host.Length > registrable.Length ? host[..^(registrable.Length + 1)] : "";
@@ -183,6 +162,29 @@ public sealed class BrandCatalog
             }
         }
 
+        return null;
+    }
+
+    /// <summary>
+    /// A brand named inside a URL's user-controlled part (path, query or the site name on a hosting platform),
+    /// e.g. "sites.google.com/view/paypal-account-review" or "forms.office.com/r/arabbank-verify".
+    /// Only distinctive names (5+ characters or matchLabelInDomains) to avoid matching ordinary words.
+    /// </summary>
+    public Brand? MentionedInUrlPart(string urlPart)
+    {
+        var tokens = Regex.Split(urlPart.ToLowerInvariant(), @"[^a-z0-9]+").Where(t => t.Length > 0).ToArray();
+        var joined = string.Concat(tokens);
+        foreach (var brand in Brands)
+        {
+            foreach (var domain in brand.Domains)
+            {
+                var label = DomainUtils.SecondLevelLabel(DomainUtils.RegistrableDomain(domain));
+                if (label.Length < 5 || !brand.MatchLabelInDomains)
+                    continue;
+                if (tokens.Contains(label) || (label.Length >= 7 && joined.Contains(label, StringComparison.Ordinal)))
+                    return brand;
+            }
+        }
         return null;
     }
 

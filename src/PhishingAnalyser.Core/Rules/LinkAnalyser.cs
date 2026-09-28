@@ -73,9 +73,26 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
             yield return new(Source, "punycode", $"Link uses an internationalised (punycode) domain that renders as '{DomainUtils.ToUnicode(host)}'", 0.3,
                 $"الرابط يستخدم نطاقًا دوليًا (punycode) يظهر بالشكل '{DomainUtils.ToUnicode(host)}'");
 
-        if (brands.DetectImpersonation(host) is { } match)
+        var impersonation = brands.DetectImpersonation(host);
+        if (impersonation is { } match)
             yield return new(Source, "lookalike-domain", $"Link domain impersonates {match.Brand.Name}: {match.Detail}", 0.6,
-                $"نطاق الرابط ينتحل صفة {match.Brand.Name}: {match.DetailArabic}");
+                $"نطاق الرابط ينتحل صفة {match.Brand.Name}: {match.DetailArabic}", match.Registrable);
+
+        // Free hosting / form / file-sharing platforms: legitimate services, but anyone can publish there -
+        // attackers use them precisely because their domains look trustworthy and aren't on blocklists.
+        if (brands.UserContentPlatform(host) is { } platform)
+        {
+            yield return new(Source, "user-content-host", $"Link leads to a page anyone can publish on {platform} ({host}), not an official site", 0.15,
+                $"الرابط يؤدي إلى صفحة يمكن لأي شخص نشرها على {platform} ({host}) وليس إلى موقع رسمي");
+
+            var platformOwner = brands.OwnerOf(DomainUtils.RegistrableDomain(platform));
+            var userPart = Uri.TryCreate(href, UriKind.Absolute, out var parsed)
+                ? host[..Math.Max(0, host.Length - platform.Length)] + parsed.PathAndQuery
+                : href;
+            if (impersonation is null && brands.MentionedInUrlPart(userPart) is { } named && named != platformOwner)
+                yield return new(Source, "brand-on-user-content", $"A page on {platform} presents itself as {named.Name} - brands don't host their sign-in or payment pages there", 0.5,
+                    $"صفحة على {platform} تقدّم نفسها على أنها {named.Name} - الجهات الرسمية لا تستضيف صفحات الدخول أو الدفع هناك");
+        }
 
         if (Shorteners.Contains(host))
             yield return new(Source, "shortener", $"Link hides its destination behind a URL shortener ({host})", 0.15,

@@ -31,7 +31,7 @@ public sealed partial class HeaderAnalyser(BrandCatalog brands)
         {
             if (brands.DetectImpersonation(senderDomain) is { } match)
                 findings.Add(new(Source, "lookalike-sender", $"Sender domain impersonates {match.Brand.Name}: {match.Detail}", 0.65,
-                    $"نطاق المرسل ينتحل صفة {match.Brand.Name}: {match.DetailArabic}"));
+                    $"نطاق المرسل ينتحل صفة {match.Brand.Name}: {match.DetailArabic}", match.Registrable));
 
             if (brands.MentionedIn(senderName) is { } brand && brands.OwnerOf(senderDomain) != brand)
             {
