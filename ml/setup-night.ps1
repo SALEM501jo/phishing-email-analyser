@@ -82,7 +82,8 @@ models = {
 for folder, repo in models.items():
     print('downloading', repo, flush=True)
     path = snapshot_download(repo, local_dir=r'$cache' + '/models/' + folder,
-                             allow_patterns=['*.json', '*.txt', '*.model', '*.safetensors', 'sentencepiece*'])
+                             # NLLB publishes only pytorch_model.bin (no safetensors), so allow both weight formats.
+                             allow_patterns=['*.json', '*.txt', '*.model', '*.safetensors', '*.bin', 'sentencepiece*'])
     print(' ->', path, flush=True)
 "@ }
 
