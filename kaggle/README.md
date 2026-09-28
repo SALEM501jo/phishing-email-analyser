@@ -33,8 +33,11 @@ dotnet test            # parity tests: .NET tokens + logits must match Python ex
 ```
 Then calibration and the end-to-end evaluation run in .NET, and the API picks up `models/transformer/` automatically.
 
-Rebuild the bundle after changing the ML scripts:
+Rebuild the bundle after changing the ML scripts. Use `make_bundle.py`, not PowerShell's `Compress-Archive`:
+Windows PowerShell 5.1 writes backslashes into zip entry names, and Kaggle rejects those.
 ```bash
 dotnet publish tools/PhishingAnalyser.Trainer -c Release -r linux-x64 --self-contained true -o kaggle/bundle/trainer
+cp ml/*.py ml/requirements.txt kaggle/bundle/ml/ && cp data/processed/corpus.jsonl data/processed/corpus_ar.jsonl kaggle/bundle/data/processed/
+python kaggle/make_bundle.py
 python kaggle/make_notebook.py
 ```
