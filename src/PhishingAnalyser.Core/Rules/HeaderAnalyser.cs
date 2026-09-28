@@ -11,7 +11,7 @@ public sealed partial class HeaderAnalyser(BrandCatalog brands)
 {
     public const string Source = "headers";
 
-    [GeneratedRegex(@"\b(spf|dkim|dmarc)\s*=\s*([a-z]+)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(spf|dkim|dmarc|compauth)\s*=\s*([a-z]+)", RegexOptions.IgnoreCase)]
     private static partial Regex AuthMethodResult();
 
     [GeneratedRegex(@"[\w.+-]+@[\w-]+(\.[\w-]+)+")]
@@ -81,6 +81,10 @@ public sealed partial class HeaderAnalyser(BrandCatalog brands)
 
         if (dmarc == "fail")
             yield return new(Source, "dmarc-fail", "DMARC failed: the sender's domain did not authorise this message", 0.5);
+        // Microsoft's composite verdict (Outlook/Office 365 receivers) - fails when the From domain looks spoofed
+        // even if the domain publishes no DMARC policy.
+        if (results.GetValueOrDefault("compauth") == "fail" && dmarc != "fail")
+            yield return new(Source, "compauth-fail", "The receiving server's composite authentication check failed (sender likely spoofed)", 0.35);
         if (spf is "fail" or "softfail")
             yield return new(Source, "spf-fail", $"SPF {spf}: the sending server is not authorised by the sender's domain", spf == "fail" ? 0.35 : 0.15);
         if (dkim == "fail")

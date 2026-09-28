@@ -161,6 +161,15 @@ public class HeaderAnalyserTests
     }
 
     [Fact]
+    public void Microsoft_compauth_failure_is_flagged()
+    {
+        // Real shape of an Outlook/Office 365 verdict on a spoofed sender.
+        const string raw = "Authentication-Results: spf=temperror (sender IP is 137.184.34.4) smtp.mailfrom=vps-06; dkim=none (message not signed) header.d=none;dmarc=temperror action=none header.from=atendimento.com.br;compauth=fail reason=001\n";
+        var result = _analyser.Analyse(new EmailSubmission { RawHeaders = raw });
+        Assert.Contains(result.Findings, f => f.Code == "compauth-fail");
+    }
+
+    [Fact]
     public void Passing_authentication_is_reported_as_positive_evidence()
     {
         const string raw = "Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass\nFrom: GitHub <noreply@github.com>\n";
