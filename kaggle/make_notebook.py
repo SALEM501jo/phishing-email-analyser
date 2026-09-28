@@ -30,24 +30,46 @@ if not os.path.exists(f'{PROJECT}/trainer/PhishingAnalyser.Trainer'):
         raise FileNotFoundError('Bundle not found - attach the phishing-analyser-bundle dataset (right panel > Add Input)')
 os.chmod(f'{PROJECT}/trainer/PhishingAnalyser.Trainer', 0o755)
 os.chdir(PROJECT)
+
+# Resume: if an earlier run's output is attached (Add Input > Your Work > this notebook), reuse its translations
+# and generated emails instead of redoing hours of GPU work. The longer file wins.
+def lines(path):
+    with open(path, encoding='utf-8') as f:
+        return sum(1 for _ in f)
+for name in ('corpus_ar.jsonl', 'generated.jsonl'):
+    mine = f'data/processed/{name}'
+    for prev in glob.glob(f'/kaggle/input/**/{name}', recursive=True):
+        if lines(prev) > (lines(mine) if os.path.exists(mine) else 0):
+            shutil.copy(prev, mine)
+            print(f'resumed {name} from {prev} ({lines(mine)} rows)')
 os.environ.update(ML_THERMAL_GUARD='off', PYTHONUNBUFFERED='1', DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1')
 !pip install -q transformers==4.46.3 "optimum[onnxruntime]==1.23.3" onnx==1.17.0 onnxruntime==1.20.1 sentencepiece==0.2.0 sacremoses==0.1.1 accelerate==1.1.1
 !nvidia-smi --query-gpu=name,memory.total --format=csv
 !wc -l data/processed/*.jsonl"""),
 
-    ("code", """# 2. Translate a balanced sample of the corpus to Arabic with NLLB-200 (~30-60 min on a T4)
-!python ml/translate.py --train-per-class 3000 --eval-per-class 300 --batch 32"""),
+    ("code", """# 2. Translate a balanced sample of the corpus to Arabic with NLLB-200 (~1 h on a T4; skips rows already done)
+!python ml/translate.py --train-per-class 3000 --eval-per-class 300 --batch 32
+# Save the translations straight away, so a later failure can't cost this hour of GPU time
+!zip -qj /kaggle/working/translations.zip data/processed/corpus_ar.jsonl && ls -la /kaggle/working/translations.zip"""),
 
-    ("code", """# 3. Local LLM for paired legitimate/phishing emails (EN + AR): install Ollama, start it, pull Qwen 2.5 7B
-!curl -fsSL https://ollama.com/install.sh | sh > /dev/null
-import subprocess, time
-ollama = subprocess.Popen(['ollama', 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(10)
-!ollama pull qwen2.5:7b-instruct 2>&1 | tail -1"""),
+    ("code", """# 3. Local LLM for paired legitimate/phishing emails (EN + AR): install Ollama, start it, pull Qwen 2.5 7B.
+# Optional step: if anything here fails, training still runs on the translations alone.
+# (Ollama's installer needs zstd to unpack its release, and Kaggle's image doesn't ship it.)
+import shutil, subprocess, time
+!apt-get -qq update > /dev/null && apt-get -qq install -y zstd > /dev/null
+!curl -fsSL https://ollama.com/install.sh | sh 2>&1 | tail -5
+ollama, GENERATE = None, False
+if shutil.which('ollama'):
+    ollama = subprocess.Popen(['ollama', 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(10)
+    GENERATE = subprocess.run(['ollama', 'pull', 'qwen2.5:7b-instruct'], capture_output=True).returncode == 0
+print('pair generation:', 'ON' if GENERATE else 'SKIPPED (Ollama unavailable) - training on translations only')"""),
 
     ("code", """# 4. Generate pairs - time-boxed so the session always has time left to train
-!python ml/generate_pairs.py --pairs-en 300 --pairs-ar 300 --max-minutes 240
-ollama.terminate()   # free the GPU for training"""),
+if GENERATE:
+    !python ml/generate_pairs.py --pairs-en 300 --pairs-ar 300 --max-minutes 240
+if ollama:
+    ollama.terminate()   # free the GPU for training"""),
 
     ("code", """# 5. Normalise everything with the SAME .NET code the API uses, and split (self-contained Linux build)
 !./trainer/PhishingAnalyser.Trainer --prepare-transformer data/processed"""),
@@ -56,7 +78,7 @@ ollama.terminate()   # free the GPU for training"""),
 !python ml/train_transformer.py --base distilbert/distilbert-base-multilingual-cased --epochs 2 --batch 32"""),
 
     ("code", """# 7. Package the results for download (Output tab -> results.zip)
-!cd /kaggle/working/project && zip -qr /kaggle/working/results.zip models/transformer models/transformer-metrics.json data/processed/corpus_ar.jsonl data/processed/generated.jsonl
+!cd /kaggle/working/project && zip -qr /kaggle/working/results.zip models/transformer models/transformer-metrics.json data/processed/corpus_ar.jsonl $(ls data/processed/generated.jsonl 2>/dev/null)
 !ls -la /kaggle/working/results.zip
 !cat models/transformer-metrics.json | head -60"""),
 ]
