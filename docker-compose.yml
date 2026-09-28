@@ -16,5 +16,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      - feedback-data:/app/data   # the only writable path: 👍/👎 feedback (SQLite)
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  feedback-data:

@@ -13,6 +13,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app .
 COPY models/ models/
+RUN mkdir -p /app/data && chown app /app/data   # feedback volume mount point, writable by the non-root user
 ENV ASPNETCORE_HTTP_PORTS=8080 \
     DOTNET_gcServer=0 \
     DOTNET_GCHeapHardLimit=0x10000000

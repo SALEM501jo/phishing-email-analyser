@@ -62,6 +62,13 @@ builder.Services.AddSingleton(sp => new EmailAnalyser(
     sp.GetRequiredService<ReputationAnalyser>(),
     reputationOptions.Enabled && builder.Configuration.GetValue("Reputation:ExpandShortLinks", true) ? sp.GetRequiredService<ShortLinkExpander>() : null));
 
+// Feedback (👍/👎) in a small SQLite file - a Docker volume in production.
+builder.Services.AddSingleton(sp =>
+{
+    var configured = builder.Configuration["Feedback:DatabasePath"] ?? "data/feedback.db";
+    return new FeedbackStore(Path.IsPathRooted(configured) ? configured : Path.Combine(builder.Environment.ContentRootPath, configured));
+});
+
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -117,6 +124,23 @@ app.MapPost("/api/v1/analyse", async Task<Results<Ok<AnalysisResult>, Validation
     .AddEndpointFilter(RequireApiKey(app.Configuration["ApiKey"]))
     .RequireRateLimiting("analyse")
     .WithName("AnalyseEmail");
+
+app.MapPost("/api/v1/feedback", Results<NoContent, ValidationProblem> (FeedbackRequest request, FeedbackStore store, ILogger<Program> logger) =>
+    {
+        if (request.Validate() is { Count: > 0 } errors)
+            return TypedResults.ValidationProblem(errors);
+        store.Add(request);
+        logger.LogInformation("Feedback: verdict={Verdict} correct={Correct} withEmail={WithEmail}", request.Verdict, request.Correct, request.Email is not null);
+        return TypedResults.NoContent();
+    })
+    .AddEndpointFilter(RequireApiKey(app.Configuration["ApiKey"]))
+    .RequireRateLimiting("analyse")
+    .WithName("SubmitFeedback");
+
+// Error rates per verdict (counts only, no content).
+app.MapGet("/api/v1/feedback/summary", (FeedbackStore store) => Results.Ok(store.Summary()))
+    .AddEndpointFilter(RequireApiKey(app.Configuration["ApiKey"]))
+    .WithName("FeedbackSummary");
 
 app.Run();
 
