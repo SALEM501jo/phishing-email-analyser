@@ -91,19 +91,11 @@ public sealed class TransformerClassifier : IContentClassifier, IDisposable
         return results.First().AsEnumerable<float>().ToArray();
     }
 
-    /// <summary>BERT WordPiece (distilbert-multilingual): [CLS] tokens [SEP], truncated like Hugging Face ("longest_first").</summary>
+    /// <summary>BERT WordPiece (distilbert-multilingual), via <see cref="HfBertTokenizer"/> - Hugging Face-exact ids.</summary>
     private static Func<string, int[]> WordPiece(string directory, TransformerInfo info)
     {
-        var tokenizer = BertTokenizer.Create(Path.Combine(directory, "vocab.txt"),
-            new BertOptions { LowerCaseBeforeTokenization = info.Lowercase, RemoveNonSpacingMarks = info.Lowercase });
-        return text =>
-        {
-            var ids = tokenizer.EncodeToIds(text, addSpecialTokens: true, considerPreTokenization: true, considerNormalization: true);
-            if (ids.Count <= info.MaxLength)
-                return ids.ToArray();
-            // Keep [CLS] + the first (max-2) word pieces + [SEP], exactly what the Python tokenizer does.
-            return [.. ids.Take(info.MaxLength - 1), ids[^1]];
-        };
+        var tokenizer = HfBertTokenizer.Load(Path.Combine(directory, "vocab.txt"), info.Lowercase);
+        return text => tokenizer.Encode(text, info.MaxLength);
     }
 
     /// <summary>

@@ -186,6 +186,20 @@ def main():
     export_onnx(best_dir, tokenizer, args, test)
 
 
+# Strings where tokenizer implementations disagree (the .NET side once dropped $ + = | ~ and emoji). Their ids go into
+# parity.json, so the .NET tests prove id-for-id agreement on them for every exported model.
+TOKENIZER_PROBES = [f"a{c}b" for c in "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"] + [
+    "price: $5 + 3 = 8 < 9 > 7 ^ 2 ~ 1 `code` | pipe",
+    "https://paypa1-secure.com/login?id=123&t=abc#frag",
+    "مرحبًا بكم في البنك العربي، يرجى تأكيد حسابك خلال ٢٤ ساعة!",
+    "السّلام عليكم",
+    "Café naïve résumé Ærø", "emoji \U0001F600\U0001F512 test", "中文字符 日本語",
+    "tab\there\nnewline\r\nx", "zero​width soft­hyphen", "x" * 150, "ǅ ﬁ ① ², ½",
+    " nbsp line", "á è", "–—‘’“”…•€£¥©®™",
+    "bad �� bytes ⹫޴ unassigned  private",
+]
+
+
 class LogitsOnly(torch.nn.Module):
     """Plain (input_ids, attention_mask) -> logits graph, the exact signature the .NET TransformerClassifier feeds."""
 
@@ -207,7 +221,8 @@ def export_onnx(best_dir, tokenizer, args, test):
     from onnxruntime.quantization import QuantType, quantize_dynamic
     import onnxruntime as ort
 
-    model = AutoModelForSequenceClassification.from_pretrained(best_dir).eval().cpu()
+    # Eager attention: the plain matmul/softmax path, which traces into a straightforward ONNX graph.
+    model = AutoModelForSequenceClassification.from_pretrained(best_dir, attn_implementation="eager").eval().cpu()
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True, exist_ok=True)
     fp32 = OUT.parent / "transformer-fp32.onnx"
@@ -219,6 +234,7 @@ def export_onnx(best_dir, tokenizer, args, test):
             dynamic_axes={"input_ids": {0: "batch", 1: "sequence"}, "attention_mask": {0: "batch", 1: "sequence"},
                           "logits": {0: "batch"}},
             opset_version=17, do_constant_folding=True)
+    model.eval()   # export can leave the module in training mode - dropout would then randomise the reference logits
     quantize_dynamic(str(fp32), str(OUT / "model.onnx"), weight_type=QuantType.QInt8)
     tokenizer.save_pretrained(OUT)
 
@@ -237,7 +253,10 @@ def export_onnx(best_dir, tokenizer, args, test):
         return enc, sess.run(None, {k: v.astype(np.int64) for k, v in enc.items() if k in input_names})[0][0]
 
     rng = random.Random(1)
-    check = rng.sample([r for r in test if r["language"] == "en"], 300) + rng.sample([r for r in test if r["language"] == "ar"], 300)
+    check = []
+    for lang in ("en", "ar"):
+        rows = [r for r in test if r["language"] == lang]
+        check += rng.sample(rows, min(300, len(rows)))
     worst, agree = 0.0, 0
     for r in check:
         enc, q = run(session, r["text"])
@@ -252,7 +271,7 @@ def export_onnx(best_dir, tokenizer, args, test):
     fp32.unlink()
 
     # Parity fixtures: the exact ids and the quantised model's logits for a few real test texts (both languages).
-    samples = [r["text"] for r in test if r["language"] == "en"][:6] + [r["text"] for r in test if r["language"] == "ar"][:6]
+    samples = [r["text"] for r in test if r["language"] == "en"][:6] + [r["text"] for r in test if r["language"] == "ar"][:6] + TOKENIZER_PROBES
     fixtures = []
     for text in samples:
         enc, logits = run(session, text)

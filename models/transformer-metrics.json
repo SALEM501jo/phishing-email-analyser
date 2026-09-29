@@ -1,0 +1,81 @@
+{
+  "base": "distilbert/distilbert-base-multilingual-cased",
+  "maxLength": 256,
+  "epochs": 2,
+  "bestValF1": 0.8094,
+  "trainMinutes": 14.5,
+  "test": {
+    "all": {
+      "n": 19464,
+      "phishing": 2114,
+      "precision": 0.8427,
+      "recall": 0.8817,
+      "f1": 0.8618,
+      "auc": 0.9853,
+      "threeClassAccuracy": 0.9479
+    },
+    "ar:generated": {
+      "n": 84,
+      "phishing": 42,
+      "precision": 0.8205,
+      "recall": 0.7619,
+      "f1": 0.7901,
+      "auc": 0.9053,
+      "threeClassAccuracy": 0.7976
+    },
+    "ar:translated": {
+      "n": 894,
+      "phishing": 294,
+      "precision": 0.8842,
+      "recall": 0.8571,
+      "f1": 0.8705,
+      "auc": 0.9624,
+      "threeClassAccuracy": 0.9094
+    },
+    "en:generated": {
+      "n": 86,
+      "phishing": 43,
+      "precision": 0.9756,
+      "recall": 0.9302,
+      "f1": 0.9524,
+      "auc": 0.9908,
+      "threeClassAccuracy": 0.9419
+    },
+    "en:modern": {
+      "n": 6583,
+      "phishing": 711,
+      "precision": 0.8419,
+      "recall": 0.7862,
+      "f1": 0.8131,
+      "auc": 0.9815,
+      "threeClassAccuracy": 0.9573
+    },
+    "en:old": {
+      "n": 11817,
+      "phishing": 1024,
+      "precision": 0.8292,
+      "recall": 0.958,
+      "f1": 0.889,
+      "auc": 0.993,
+      "threeClassAccuracy": 0.9467
+    },
+    "lang:ar": {
+      "n": 978,
+      "phishing": 336,
+      "precision": 0.8765,
+      "recall": 0.8452,
+      "f1": 0.8606,
+      "auc": 0.9588,
+      "threeClassAccuracy": 0.8998
+    },
+    "lang:en": {
+      "n": 18486,
+      "phishing": 1778,
+      "precision": 0.8369,
+      "recall": 0.8886,
+      "f1": 0.862,
+      "auc": 0.9869,
+      "threeClassAccuracy": 0.9504
+    }
+  }
+}
