@@ -1,13 +1,13 @@
 # Phishing Email Analyser
 
-A Chrome extension that scores the Gmail message you're reading for phishing and shows the verdict inline. The backend is an ASP.NET Core API that combines a **machine-learned text classifier (ML.NET)** with **rule-based sender and link checks**, and it explains every verdict in plain language.
+A Chrome extension that scores the Gmail message you're reading for phishing and shows the verdict inline. The backend is an ASP.NET Core API that combines a **multilingual transformer (English + Arabic, served with ONNX Runtime in .NET)** and an **ML.NET model that explains its verdicts** with **rule-based sender and link checks**, and it explains every verdict in plain language.
 
 [![CI/CD](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml)
 
 ```
 ┌──────────── Gmail tab ─────────────┐          ┌──────────── ASP.NET Core API (Docker) ────────────────┐
 │ content script                     │          │  POST /api/v1/analyse                                 │
-│  • subject, sender, body, links,   │  JSON    │   ├─ Text classifier (ML.NET; EN/AR transformer next)  │
+│  • subject, sender, body, links,   │  JSON    │   ├─ Text: EN/AR transformer (ONNX) + ML.NET explainer │
 │    attachment NAMES (from the DOM) │ ───────► │   ├─ Sender checks   display name, Reply-To, look-alike│
 │  • optional raw headers via        │ (via     │   │                  domains, SPF/DKIM/DMARC/compauth   │
 │    Gmail "Show original"           │ service  │   ├─ Link checks     typosquats, homoglyphs, IP URLs,   │
@@ -81,9 +81,38 @@ The model trained only on old data **misses 92% of today's phishing**, even thou
 | "phishing" | 97.2% | 62.6% | **0.30%** (13 of 4,341) |
 | any warning ("phishing" or "suspicious") | 94.0% | 78.6% | 0.83% |
 
+### The multilingual transformer (shipped)
+A fine-tuned `distilbert-base-multilingual-cased` now makes the text decision. It reads word order and context, which bag-of-words can't: paraphrased and LLM-written phishing, and Arabic. The linear model stays loaded, but only to explain verdicts (its "strongest cue" words).
+
+- **Python only offline.** Training ran on Kaggle's free GPU (the laptop GPU crashed under sustained load). The model is exported to **int8 ONNX** (136 MB) and served by **ONNX Runtime inside ASP.NET Core**. Production is pure .NET.
+- **Training data:**
+  - the same cleaned corpus;
+  - about 10,000 emails **machine-translated to Arabic** with NLLB-200, class-balanced;
+  - 1,199 **paired** emails from a local LLM (Qwen 2.5 7B). Each legitimate/phishing pair shares one scenario and one writer, so "sounds AI-written" can't become a shortcut.
+- **Tokenizer parity is tested, not assumed.** The `parity.json` tests showed that `Microsoft.ML.Tokenizers`' BERT tokenizer differs from Hugging Face's on exactly the characters phishing mail is full of. It dropped `$ + = | ~ < >` and emoji, and handled tabs, zero-width characters and accents differently. `HfBertTokenizer` reimplements Hugging Face's rules. It matches Python id-for-id on 4,000 real emails and 47 adversarial strings, and every exported model re-checks tokens and logits in CI.
+- **Quantisation checked, not assumed.** Per-channel int8 with reduced range agrees with the full-precision model on 99.2% of test emails, against 98.1% for the default settings, at the same size.
+
+Full analyser on the **same** 5,052 held-out modern English test emails, with thresholds tuned on a separate split (`models/transformer/metrics.json` in the release):
+
+| Text model in the analyser | "phishing" recall | any-warning recall | legitimate → "phishing" | legitimate → any warning | AUC |
+|---|---|---|---|---|---|
+| ML.NET linear (previous) | 63.4% | 80.0% | 0.14% (6) | 0.65% | 0.984 |
+| **Transformer (shipped)** | **79.7%** | **87.2%** | **0.12% (5)** | **0.53%** | **0.996** |
+
+The transformer catches **116 more of 711 phishing emails with fewer false alarms**.
+
+**Arabic ships as a *preview*, on purpose.** Machine-translated Arabic test mail scores well (precision 99.5%, recall 83%). But on the small LLM-generated set, which looks like real Arabic business mail (receipts, orders, bank notices), **14% of legitimate emails** would have been called phishing. A harmless Arabic "your order has shipped" email scored 61%. The Arabic legitimate training data is translated *mailing-list* mail, so the model never learned normal Arabic transactional mail. Until that is fixed:
+- Arabic text counts at half weight, so wording alone can reach "suspicious" but never "phishing";
+- sender, link, attachment and reputation checks still apply in full;
+- the user sees an honest "preview" note in Arabic.
+
+Promoting Arabic needs realistic Arabic legitimate mail. The pipeline for that is ready: `generate_pairs.py`, plus the broken-translation filter, which now drops 735 degenerate NLLB outputs.
+
 ### Techniques that made the difference
 - **Confident learning (label cleaning):** the honeypot also catches marketing, and the spam trap also catches phishing. Each noisy email is scored by a model that never saw it (3-fold, split by campaign). Training emails whose label the model confidently rejects are dropped, 489 in total: 271 "phishing" that were really spam, 72 "spam" that were really phishing, and so on. Test data is never cleaned. (Northcutt et al., 2021, the idea behind *cleanlab*.)
-- **Platt calibration:** the phishing probability is rescaled on held-out data so that 0.8 means roughly 80% (Brier score 0.0438 → 0.0422).
+- **Platt calibration:** the phishing probability is rescaled on held-out data so that 0.8 means roughly 80%. For the linear model the Brier score went 0.0438 → 0.0422; for the over-confident transformer it went 0.0475 → 0.0416 (A = 0.47).
+  - The fit is a damped Newton method with a weak prior, and it falls back to the identity if calibration would hurt.
+  - Plain Newton diverged to A = 1.8×10¹⁰ on the transformer's near-0/1 outputs. The evaluation caught it because the Brier score got *worse*.
 - **Threshold calibration:** chosen on a *tune* split, reported on a separate *test* split, never the same data.
 - **Model versioning:** each model gets a version such as `2026.09.28-33aa49bb` (date + SHA-256 of the file). It appears in `/health` and in every API response.
 
@@ -100,8 +129,9 @@ Measured on modern mail:
 ### Honest limitations
 - **No modern legitimate *transactional or marketing* mail:** there are no newsletters, receipts or password resets from real companies, because no public corpus exists. A genuine "Reset your password" email still scores 75% phishing on text alone. The fix is labelled mail from real inboxes.
 - **Legitimate mail is tech-flavoured:** modern legitimate mail comes from developer mailing lists, so its vocabulary leans technical.
-- **Phishing recall is 63–79%:** about 1 in 5 modern phishing emails gets no warning. Many are low-effort scams whose text resembles spam.
-- **English only:** non-English emails are detected, and the classifier's weight is halved with a stated limitation. A multilingual model (including Arabic) is the next step.
+- **Phishing recall is 80–87%** (transformer): about 1 in 8 modern phishing emails gets no warning. Many are low-effort scams whose text resembles spam.
+- **Arabic is a preview** (see above). Other languages are detected and get the half-weight treatment with a stated limitation.
+- **Memory:** the transformer and the linear explainer need about 470 MB (about 530 MB while loading), so the container limit is 640 MB. Dropping the explainer would save about 200 MB, at the cost of the "strongest cues" wording.
 
 ## DOM reading vs. Gmail API
 
@@ -143,7 +173,7 @@ The extension reads the rendered Gmail DOM instead of calling the Gmail API. Thi
 
 ```bash
 python scripts/models.py fetch                                  # model binaries from the GitHub Release, SHA-256 verified
-dotnet test                                                     # 162 tests: rules, Arabic, reputation (fake HTTP), SSRF guard, API security, end-to-end
+dotnet test                                                     # 175 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, end-to-end
 dotnet run --project src/PhishingAnalyser.Api --launch-profile http   # http://localhost:5080/swagger
 ```
 
