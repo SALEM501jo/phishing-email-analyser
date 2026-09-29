@@ -112,7 +112,14 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-5)
     ap.add_argument("--max-old-per-class", type=int, default=8000)
     ap.add_argument("--arabic-boost", type=int, default=2)
+    ap.add_argument("--export-only", metavar="CHECKPOINT_DIR",
+                    help="skip training: export an already fine-tuned checkpoint (e.g. models/transformer-best) to ONNX")
     args = ap.parse_args()
+
+    if args.export_only:
+        tokenizer = AutoTokenizer.from_pretrained(args.export_only)
+        export_onnx(Path(args.export_only), tokenizer, args, load("test"))
+        return
 
     rng = random.Random(42)
     torch.manual_seed(42)
@@ -179,38 +186,80 @@ def main():
     export_onnx(best_dir, tokenizer, args, test)
 
 
+class LogitsOnly(torch.nn.Module):
+    """Plain (input_ids, attention_mask) -> logits graph, the exact signature the .NET TransformerClassifier feeds."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_ids, attention_mask):
+        return self.model(input_ids=input_ids, attention_mask=attention_mask).logits
+
+
 def export_onnx(best_dir, tokenizer, args, test):
-    """ONNX export + int8 dynamic quantisation, plus parity fixtures for the .NET tests."""
+    """
+    ONNX export + int8 dynamic quantisation, plus parity fixtures for the .NET tests.
+
+    Uses torch.onnx.export directly rather than optimum: optimum imports diffusers, and Kaggle's preinstalled
+    diffusers is incompatible with the pinned transformers (the first Kaggle run failed right here).
+    """
     from onnxruntime.quantization import QuantType, quantize_dynamic
-    from optimum.onnxruntime import ORTModelForSequenceClassification
     import onnxruntime as ort
 
+    model = AutoModelForSequenceClassification.from_pretrained(best_dir).eval().cpu()
     shutil.rmtree(OUT, ignore_errors=True)
-    tmp = OUT.parent / "transformer-fp32"
-    ORTModelForSequenceClassification.from_pretrained(best_dir, export=True).save_pretrained(tmp)
     OUT.mkdir(parents=True, exist_ok=True)
-    quantize_dynamic(str(tmp / "model.onnx"), str(OUT / "model.onnx"), weight_type=QuantType.QInt8)
+    fp32 = OUT.parent / "transformer-fp32.onnx"
+    example = tokenizer(["Verify your account", "مرحبا، تم شحن طلبك"], padding=True, return_tensors="pt")
+    with torch.no_grad():
+        torch.onnx.export(
+            LogitsOnly(model), (example["input_ids"], example["attention_mask"]), str(fp32),
+            input_names=["input_ids", "attention_mask"], output_names=["logits"],
+            dynamic_axes={"input_ids": {0: "batch", 1: "sequence"}, "attention_mask": {0: "batch", 1: "sequence"},
+                          "logits": {0: "batch"}},
+            opset_version=17, do_constant_folding=True)
+    quantize_dynamic(str(fp32), str(OUT / "model.onnx"), weight_type=QuantType.QInt8)
     tokenizer.save_pretrained(OUT)
-    shutil.rmtree(tmp, ignore_errors=True)
 
     tok_type = "wordpiece" if (OUT / "vocab.txt").exists() else "sentencepiece"
     info = {"base": args.base, "classes": CLASSES, "maxLength": args.max_len, "tokenizer": tok_type,
             "lowercase": bool(getattr(tokenizer, "do_lower_case", False))}
     (OUT / "transformer-info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
 
-    # Parity fixtures: the exact ids and the quantised model's logits for a few real test texts (both languages).
+    # Sanity checks: fp32 ONNX must reproduce PyTorch, and int8 must agree with fp32 on (almost) every prediction.
     session = ort.InferenceSession(str(OUT / "model.onnx"))
+    session_fp32 = ort.InferenceSession(str(fp32))
     input_names = {i.name for i in session.get_inputs()}
+
+    def run(sess, text):
+        enc = tokenizer(text, truncation=True, max_length=args.max_len, return_tensors="np")
+        return enc, sess.run(None, {k: v.astype(np.int64) for k, v in enc.items() if k in input_names})[0][0]
+
+    rng = random.Random(1)
+    check = rng.sample([r for r in test if r["language"] == "en"], 300) + rng.sample([r for r in test if r["language"] == "ar"], 300)
+    worst, agree = 0.0, 0
+    for r in check:
+        enc, q = run(session, r["text"])
+        _, f = run(session_fp32, r["text"])
+        with torch.no_grad():
+            t = model(input_ids=torch.tensor(enc["input_ids"]), attention_mask=torch.tensor(enc["attention_mask"])).logits[0].numpy()
+        worst = max(worst, float(np.abs(f - t).max()))
+        agree += int(q.argmax() == t.argmax())
+    print(f"ONNX fp32 vs PyTorch: max |logit diff| = {worst:.2e}; int8 agrees with PyTorch on {agree}/{len(check)} test emails")
+    if worst > 1e-3:
+        raise SystemExit("fp32 ONNX export does not match PyTorch - refusing to ship it")
+    fp32.unlink()
+
+    # Parity fixtures: the exact ids and the quantised model's logits for a few real test texts (both languages).
     samples = [r["text"] for r in test if r["language"] == "en"][:6] + [r["text"] for r in test if r["language"] == "ar"][:6]
     fixtures = []
     for text in samples:
-        enc = tokenizer(text, truncation=True, max_length=args.max_len, return_tensors="np")
-        feed = {k: v.astype(np.int64) for k, v in enc.items() if k in input_names}
-        logits = session.run(None, feed)[0][0]
+        enc, logits = run(session, text)
         fixtures.append({"text": text, "inputIds": enc["input_ids"][0].tolist(), "logits": [float(x) for x in logits]})
     (OUT / "parity.json").write_text(json.dumps(fixtures, ensure_ascii=False, indent=1), encoding="utf-8")
     size = (OUT / "model.onnx").stat().st_size / 1e6
-    print(f"Exported {OUT / 'model.onnx'} ({size:.0f} MB, {tok_type} tokenizer)")
+    print(f"Exported {OUT / 'model.onnx'} ({size:.0f} MB, {tok_type} tokenizer, int8 agreement {agree}/{len(check)})")
 
 
 if __name__ == "__main__":

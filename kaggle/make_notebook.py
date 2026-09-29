@@ -43,7 +43,7 @@ for name in ('corpus_ar.jsonl', 'generated.jsonl'):
             shutil.copy(prev, mine)
             print(f'resumed {name} from {prev} ({lines(mine)} rows)')
 os.environ.update(ML_THERMAL_GUARD='off', PYTHONUNBUFFERED='1', DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1')
-!pip install -q transformers==4.46.3 "optimum[onnxruntime]==1.23.3" onnx==1.17.0 onnxruntime==1.20.1 sentencepiece==0.2.0 sacremoses==0.1.1 accelerate==1.1.1
+!pip install -q transformers==4.46.3 onnx==1.17.0 onnxruntime==1.20.1 sentencepiece==0.2.0 sacremoses==0.1.1 accelerate==1.1.1
 !nvidia-smi --query-gpu=name,memory.total --format=csv
 !wc -l data/processed/*.jsonl"""),
 
