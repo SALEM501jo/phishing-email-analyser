@@ -233,7 +233,8 @@ def export_onnx(best_dir, tokenizer, args, test):
             input_names=["input_ids", "attention_mask"], output_names=["logits"],
             dynamic_axes={"input_ids": {0: "batch", 1: "sequence"}, "attention_mask": {0: "batch", 1: "sequence"},
                           "logits": {0: "batch"}},
-            opset_version=17, do_constant_folding=True)
+            opset_version=17, do_constant_folding=True,
+            dynamo=False)   # the classic TorchScript exporter; newer torch defaults to dynamo, which needs onnxscript
     model.eval()   # export can leave the module in training mode - dropout would then randomise the reference logits
     # Per-channel + reduced range: on 1,000 test emails the int8 model then disagrees with fp32 on 6 instead of 19,
     # at the same size (136 MB); reduced range also avoids int8 saturation on CPUs without VNNI (typical VPS).
