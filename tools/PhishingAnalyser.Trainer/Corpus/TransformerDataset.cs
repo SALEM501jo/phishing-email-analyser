@@ -29,7 +29,7 @@ public sealed record TrainingRow(string Text, string Label, string Language, str
 ///   (python) translate.py  corpus.jsonl -> corpus_ar.jsonl        generate_pairs.py -> generated.jsonl
 ///   --prepare-transformer  all of the above -> normalised transformer_{train,val,test}.jsonl
 /// </summary>
-public static class TransformerDataset
+public static partial class TransformerDataset
 {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -69,6 +69,7 @@ public static class TransformerDataset
             s => new StreamWriter(Path.Combine(processedDir, $"transformer_{s}.jsonl"), false, new UTF8Encoding(false)));
         var counts = new Dictionary<(string Split, string Lang, string Label), int>();
 
+        var rejected = 0;
         foreach (var file in inputs)
         {
             var generated = Path.GetFileName(file) == "generated.jsonl";
@@ -84,6 +85,11 @@ public static class TransformerDataset
                     text = TextCleaning.ScrubCorpusArtifacts(text);
                 if (text.Length < 30)
                     continue;
+                if (row.Language == "ar" && !generated && BrokenTranslation(text))
+                {
+                    rejected++;
+                    continue;
+                }
 
                 writers[split].WriteLine(JsonSerializer.Serialize(new TrainingRow(text, row.Class, row.Language, row.Source, row.Modern), Json));
                 var key = (split, row.Language, row.Class);
@@ -92,9 +98,34 @@ public static class TransformerDataset
         }
 
         foreach (var w in writers.Values) w.Dispose();
+        Console.WriteLine($"  dropped {rejected} broken machine translations (stuck repeating, or not actually Arabic)");
         foreach (var ((split, lang, label), n) in counts.OrderBy(kv => kv.Key))
             Console.WriteLine($"  {split,-5} {lang,-3} {label,-11} {n,7}");
     }
+
+    /// <summary>
+    /// NLLB sometimes degenerates - one character or word repeated dozens of times - or leaves the email in English.
+    /// About 11% of translations; skewed towards phishing/spam, so keeping them would teach "garbled = phishing".
+    /// </summary>
+    public static bool BrokenTranslation(string text)
+    {
+        if (RepeatedChar().IsMatch(text) || RepeatedWord().IsMatch(text))
+            return true;
+        int arabic = 0, letters = 0;
+        foreach (var c in text)
+        {
+            if (!char.IsLetter(c)) continue;
+            letters++;
+            if (c is >= '\u0600' and <= '\u06FF') arabic++;
+        }
+        return letters > 0 && arabic < 0.3 * letters;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"(.)\1{19,}")]
+    private static partial System.Text.RegularExpressions.Regex RepeatedChar();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"(\b\S+\s+)\1{5,}")]
+    private static partial System.Text.RegularExpressions.Regex RepeatedWord();
 
     /// <summary>Generated emails are split by pair key (brand|type|language), so both halves of a pair land together.</summary>
     private static string GeneratedSplit(ExchangeRow row)

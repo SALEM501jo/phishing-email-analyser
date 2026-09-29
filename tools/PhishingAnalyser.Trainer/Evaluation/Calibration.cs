@@ -17,29 +17,55 @@ public static class Calibration
         var x = rows.Select(r => Logit(r.Raw)).ToArray();
         var t = rows.Select(r => r.Positive ? hi : lo).ToArray();
 
-        double a = 1, b = 0;
+        // Damped Newton on the log-loss plus a weak prior pulling (A, B) towards the identity (1, 0).
+        // Plain Newton diverges when the model is very confident (probabilities at ~0/1 make the data almost
+        // separable): the first transformer fit ran off to A = 1.8e10. Each step must lower the loss or it is halved.
+        const double Prior = 1.0;
+        double Loss(double a, double b)
+        {
+            double loss = Prior / 2 * ((a - 1) * (a - 1) + b * b);
+            for (var i = 0; i < x.Length; i++)
+            {
+                var z = a * x[i] + b;
+                // log(1 + e^z) - t·z, computed stably
+                loss += (z > 0 ? z + Math.Log(1 + Math.Exp(-z)) : Math.Log(1 + Math.Exp(z))) - t[i] * z;
+            }
+            return loss;
+        }
+
+        double a = 1, b = 0, current = Loss(a, b);
         for (var iteration = 0; iteration < 100; iteration++)
         {
-            double ga = 0, gb = 0, haa = 0, hab = 0, hbb = 0;
+            double ga = Prior * (a - 1), gb = Prior * b, haa = Prior, hab = 0, hbb = Prior;
             for (var i = 0; i < x.Length; i++)
             {
                 var p = 1 / (1 + Math.Exp(-(a * x[i] + b)));
                 var d = p - t[i];
-                var w = p * (1 - p) + 1e-12;
+                var w = p * (1 - p);
                 ga += d * x[i]; gb += d;
                 haa += w * x[i] * x[i]; hab += w * x[i]; hbb += w;
             }
 
-            haa += 1e-9; hbb += 1e-9; // keep the Hessian invertible
             var det = haa * hbb - hab * hab;
             var da = (hbb * ga - hab * gb) / det;
             var db = (haa * gb - hab * ga) / det;
-            a -= da; b -= db;
-            if (Math.Abs(da) < 1e-7 && Math.Abs(db) < 1e-7)
+            var step = 1.0;
+            while (step > 1e-6 && Loss(a - step * da, b - step * db) > current)
+                step /= 2;
+            if (step <= 1e-6)
+                break;
+            a -= step * da; b -= step * db;
+            var next = Loss(a, b);
+            var converged = current - next < 1e-9 * Math.Max(1, Math.Abs(current));
+            current = next;
+            if (converged)
                 break;
         }
 
-        return new PlattCalibration(Math.Round(a, 5), Math.Round(b, 5));
+        // Never ship a calibration that makes probabilities worse than leaving them alone.
+        var fitted = new PlattCalibration(Math.Round(a, 5), Math.Round(b, 5));
+        var identity = new PlattCalibration(1, 0);
+        return Brier(rows.Select(r => (fitted.Apply(r.Raw), r.Positive))) <= Brier(rows) ? fitted : identity;
     }
 
     /// <summary>Mean squared error between probability and outcome - lower is better calibrated.</summary>

@@ -197,6 +197,10 @@ public sealed class EmailAnalyser(
             limitations.Add(arabic
                 ? "لم يُطبَّق مصنّف النصوص (النموذج غير متوفر أو نص الرسالة فارغ)."
                 : "Text classifier not applied (model unavailable or empty body).");
+        else if (content.LanguagePreview)
+            limitations.Add(arabic
+                ? "تحليل النص العربي في مرحلة تجريبية (دُرّب أساسًا على رسائل مترجمة آليًا)، لذلك خُفّض وزنه إلى النصف ولا يكفي وحده لاعتبار الرسالة تصيّدًا؛ فحوص المرسل والروابط تعمل بالكامل."
+                : "Text analysis for this language is in preview (trained mostly on machine-translated mail), so its weight was halved and wording alone can't make a phishing verdict; sender and link checks still apply in full.");
         else if (!content.LanguageSupported)
             limitations.Add(arabic
                 ? "مصنّف النصوص الحالي لم يُدرَّب على اللغة العربية بعد، لذلك خُفّض وزنه إلى النصف؛ فحوص المرسل والروابط تعمل بالكامل."

@@ -12,6 +12,7 @@ TestResults/
 # The small readable files (model-info.json, metrics.json, manifest.json) stay in git.
 /models/*.zip
 /models/transformer/
+/models/transformer-best/
 
 # Local ML environment and logs
 ml/.venv/

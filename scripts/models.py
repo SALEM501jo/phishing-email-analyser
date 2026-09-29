@@ -91,18 +91,23 @@ def verify():
 
 def headline(metrics):
     """The calibrated end-to-end numbers on the modern test split, for quick comparison between releases."""
-    calibrated = (metrics.get("endToEnd") or {}).get("calibrated") or {}
+    calibrated = ((metrics.get("endToEndModernEnglish") or {}).get("transformer")          # transformer metrics.json
+                  or (metrics.get("endToEnd") or {}).get("calibrated") or {})               # linear metrics.json
     pick = lambda m: {k: m.get(k) for k in ("precision", "recall", "falsePositiveRate")} if m else None
     return {"phishingVerdict": pick(calibrated.get("phishingVerdict")), "anyWarning": pick(calibrated.get("anyWarning"))}
 
 
 def publish():
-    info = json.loads((MODELS / "model-info.json").read_text(encoding="utf-8"))
+    linear_info = json.loads((MODELS / "model-info.json").read_text(encoding="utf-8"))
+    has_transformer = (TRANSFORMER_DIR / "model.onnx").exists()
+    # With a transformer, it is the model that decides - the release is named after it; the linear model explains.
+    info_dir = TRANSFORMER_DIR if has_transformer else MODELS
+    info = json.loads((info_dir / "model-info.json").read_text(encoding="utf-8"))
     version = info["version"]
     release = f"model-{version}"
     assets = [MODELS / LINEAR]
     with tempfile.TemporaryDirectory() as tmp:
-        if (TRANSFORMER_DIR / "model.onnx").exists():
+        if has_transformer:
             bundle = Path(tmp) / TRANSFORMER_ZIP
             with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as z:
                 for f in sorted(TRANSFORMER_DIR.rglob("*")):
@@ -110,10 +115,13 @@ def publish():
                         z.write(f, f.relative_to(TRANSFORMER_DIR).as_posix())
             assets.append(bundle)
 
-        metrics = json.loads((MODELS / "metrics.json").read_text(encoding="utf-8")) if (MODELS / "metrics.json").exists() else {}
+        metrics_path = info_dir / "metrics.json"
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {}
         commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, capture_output=True).stdout.strip()
         notes = [f"Model {version}, trained {info.get('trainedAtUtc', '?')} (published from commit {commit[:12]}).", "",
-                 info.get("description", ""), "", "Files are verified against models/manifest.json by scripts/models.py fetch."]
+                 info.get("description", ""), "",
+                 f"Explanations (strongest cue words) from the linear model {linear_info['version']}." if has_transformer else "",
+                 "Files are verified against models/manifest.json by scripts/models.py fetch."]
         existing = subprocess.run(["gh", "release", "view", release], cwd=ROOT, capture_output=True).returncode == 0
         if existing:
             gh("release", "upload", release, *map(str, assets), "--clobber")
@@ -124,6 +132,9 @@ def publish():
             "release": release,
             "version": version,
             "trainedAtUtc": info.get("trainedAtUtc"),
+            "explainerVersion": linear_info["version"] if has_transformer else None,
+            "languages": info.get("languages"),
+            "previewLanguages": info.get("previewLanguages"),
             "publishedAtUtc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "publishedFromCommit": commit,
             "assets": [{"name": a.name, "size": a.stat().st_size, "sha256": sha256(a)} for a in assets],

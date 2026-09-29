@@ -23,9 +23,16 @@ public sealed record ModelInfo(
     string Description,
     PlattCalibration? Calibration = null,
     VerdictThresholds? Thresholds = null,
-    string[]? Languages = null)
+    string[]? Languages = null,
+    string[]? PreviewLanguages = null)
 {
     public bool Supports(string language) => (Languages ?? [Content.Languages.English]).Contains(language);
+
+    /// <summary>
+    /// Trained on, but not yet trusted: evaluation showed too many false alarms on realistic mail in this language.
+    /// Scored at half weight (like an unsupported language) with an honest "preview" note instead of "not trained".
+    /// </summary>
+    public bool IsPreview(string language) => PreviewLanguages?.Contains(language) == true;
 }
 
 /// <summary>calibrated = sigmoid(A · logit(raw) + B)</summary>

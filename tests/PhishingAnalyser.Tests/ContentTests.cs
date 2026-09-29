@@ -54,4 +54,26 @@ public class ContentEvidenceTests
     [Fact]
     public void Not_evaluated_counts_zero() =>
         Assert.Equal(0, EmailAnalyser.ContentEvidence(ContentResult.NotEvaluated, Options));
+
+    [Fact]
+    public void Preview_language_wording_alone_cannot_make_a_phishing_verdict()
+    {
+        // A preview-language model that is certain the Arabic text is phishing, and nothing else suspicious.
+        var classifier = new FixedClassifier(new ContentResult(true, 1.0, 0, [], LanguageSupported: false, Language: "ar", LanguagePreview: true));
+        var analyser = new EmailAnalyser(classifier, new PhishingAnalyser.Core.Rules.HeaderAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default),
+            new PhishingAnalyser.Core.Rules.LinkAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default), Options);
+
+        var result = analyser.Analyse(new EmailSubmission { Subject = "تم شحن طلبك", Body = "طلبك في الطريق ومن المتوقع وصوله يوم الخميس." });
+
+        Assert.NotEqual(Verdicts.Phishing, result.Verdict);
+        Assert.Contains(result.Limitations, l => l.Contains("تجريبية")); // the Arabic "preview" note, not "not trained"
+        Assert.DoesNotContain(result.Limitations, l => l.Contains("لم يُدرَّب"));
+    }
+
+    private sealed class FixedClassifier(ContentResult result) : IContentClassifier
+    {
+        public bool IsLoaded => true;
+        public ModelInfo? Model => null;
+        public ContentResult Classify(string? subject, string? body) => result;
+    }
 }

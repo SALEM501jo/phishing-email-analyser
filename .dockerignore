@@ -7,3 +7,10 @@ extension/
 docs/
 .git/
 .github/
+ml/
+kaggle/
+scripts/
+# training-only artefacts - the image needs only models/*.zip, model-info/metrics and models/transformer/
+models/transformer-best/
+models/transformer-metrics.json
+models/manifest.json

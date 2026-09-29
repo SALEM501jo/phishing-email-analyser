@@ -31,7 +31,16 @@ public sealed class TransformerClassifier : IContentClassifier, IDisposable
         _info = JsonSerializer.Deserialize<TransformerInfo>(File.ReadAllText(Path.Combine(directory, "transformer-info.json")), ContentClassifier.JsonOptions)!;
         _classIndex = _info.Classes.Select((c, i) => (c, i)).ToDictionary(x => x.c, x => x.i);
 
-        var options = new SessionOptions { GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL, IntraOpNumThreads = 2 };
+        // Tuned for a small container: no memory arena, no memory-pattern planning and no pre-packed second copy
+        // of the weights. Costs a little latency, saves most of ONNX Runtime's overhead on top of the 136 MB model.
+        var options = new SessionOptions
+        {
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+            IntraOpNumThreads = 2,
+            EnableCpuMemArena = false,
+            EnableMemoryPattern = false,
+        };
+        options.AddSessionConfigEntry("session.disable_prepacking", "1");
         _session = new InferenceSession(Path.Combine(directory, "model.onnx"), options);
         _needsTokenTypeIds = _session.InputMetadata.ContainsKey("token_type_ids");
         _encode = _info.Tokenizer == "wordpiece" ? WordPiece(directory, _info) : XlmRobertaSentencePiece(directory, _info);
@@ -61,7 +70,8 @@ public sealed class TransformerClassifier : IContentClassifier, IDisposable
             SpamProbability: probabilities[_classIndex[EmailClasses.Spam]],
             IndicativeTerms: [],
             LanguageSupported: Model?.Supports(language) ?? language is Languages.English or Languages.Arabic,
-            Language: language);
+            Language: language,
+            LanguagePreview: Model?.IsPreview(language) == true);
     }
 
     /// <summary>Per-class probabilities for already-normalised text (used by the trainer's evaluation).</summary>

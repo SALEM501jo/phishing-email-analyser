@@ -9,6 +9,7 @@ using PhishingAnalyser.Trainer.Evaluation;
 
 // Usage: dotnet run --project tools/PhishingAnalyser.Trainer -c Release -- [dataDir=data/raw] [outDir=models]
 //        dotnet run --project tools/PhishingAnalyser.Trainer -c Release -- --eval-inbox data/eval/All-mail.mbox
+//        dotnet run --project tools/PhishingAnalyser.Trainer -c Release -- --evaluate-transformer   (after the ONNX export)
 if (args.ElementAtOrDefault(0) == "--eval-inbox")
 {
     var mbox = args.ElementAtOrDefault(1) ?? throw new ArgumentException("Pass the path of the Takeout .mbox file");
@@ -31,7 +32,8 @@ if (args.ElementAtOrDefault(0) == "--prepare-transformer")
     return;
 }
 var exportOnly = args.ElementAtOrDefault(0) == "--export-corpus";
-if (exportOnly)
+var evaluateTransformer = args.ElementAtOrDefault(0) == "--evaluate-transformer"; // calibrate + evaluate models/transformer/
+if (exportOnly || evaluateTransformer)
     args = args.Skip(1).ToArray();
 
 var dataDir = args.ElementAtOrDefault(0) ?? Path.Combine("data", "raw");
@@ -60,6 +62,12 @@ Console.WriteLine("\nCorpus (after cleaning, de-duplication and caps):");
 foreach (var g in emails.GroupBy(e => (e.Modern ? "modern" : "old", e.Class)).OrderBy(g => g.Key))
     Console.WriteLine($"  {g.Key.Item1,-7} {g.Key.Class,-11} {g.Count(),7}");
 Console.WriteLine($"  splits: old train={oldTrain.Count} old test={oldTest.Count} | modern train={modernTrain.Count} tune={modernTune.Count} test={modernTest.Count}");
+
+if (evaluateTransformer)
+{
+    TransformerEvaluation.Run(Path.Combine("models", "transformer"), modernTune, modernTest, processedDir);
+    return;
+}
 
 if (exportOnly)
 {

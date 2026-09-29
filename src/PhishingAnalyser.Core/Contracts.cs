@@ -52,7 +52,8 @@ public sealed record ContentResult(
     double SpamProbability,
     IReadOnlyList<string> IndicativeTerms,
     bool LanguageSupported = true,
-    string Language = "en")
+    string Language = "en",
+    bool LanguagePreview = false)
 {
     public static ContentResult NotEvaluated { get; } = new(false, 0, 0, []);
 }
