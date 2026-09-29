@@ -41,3 +41,30 @@ cp ml/*.py ml/requirements.txt kaggle/bundle/ml/ && cp data/processed/corpus.jso
 python kaggle/make_bundle.py
 python kaggle/make_notebook.py
 ```
+
+## Round 2: realistic Arabic (makes Arabic leave "preview")
+The bundle now carries round 1's translations and generated emails, so nothing is redone.
+1. **Datasets → phishing-analyser-bundle → New Version**, upload the rebuilt `kaggle/phishing-analyser-bundle.zip`.
+2. In the notebook: **File → Import Notebook** → `kaggle/phishing-transformer.ipynb` (replace). Remove the old
+   `phishing-translations` input if you like; it's redundant now.
+3. **Save Version → Save & Run All** (about 7.5 h). The steps:
+   - pull two generator models, one Ollama server per GPU;
+   - write an independent Gemma 2 test set;
+   - generate Qwen 2.5 14B training pairs;
+   - train for 3 epochs and export ONNX.
+
+   `generated.zip` is saved as soon as generation finishes.
+4. Download `results.zip` into the project root. Then, locally (CPU):
+   ```bash
+   unzip -o results.zip
+   dotnet run --project tools/PhishingAnalyser.Trainer -c Release -- --prepare-transformer data/processed
+   dotnet run --project tools/PhishingAnalyser.Trainer -c Release -- --evaluate-transformer
+   ```
+   The evaluation promotes Arabic to full support only if realistic Arabic test mail passes all of the following:
+   - 100+ legitimate and 100+ phishing test emails;
+   - legitimate → "phishing" ≤ 1%;
+   - legitimate → any warning ≤ 3%;
+   - phishing gets a warning ≥ 80%;
+   - translated-mail false positives ≤ 1%.
+
+   Otherwise it stays in preview, and the report says which check failed.

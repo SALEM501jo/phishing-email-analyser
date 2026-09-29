@@ -59,7 +59,7 @@ public static partial class TransformerDataset
     /// </summary>
     public static void Prepare(string processedDir)
     {
-        var inputs = new[] { "corpus.jsonl", "corpus_ar.jsonl", "generated.jsonl" }
+        var inputs = new[] { "corpus.jsonl", "corpus_ar.jsonl", "generated.jsonl", "generated_test.jsonl" }
             .Select(f => Path.Combine(processedDir, f))
             .Where(File.Exists)
             .ToList();
@@ -72,11 +72,13 @@ public static partial class TransformerDataset
         var rejected = 0;
         foreach (var file in inputs)
         {
-            var generated = Path.GetFileName(file) == "generated.jsonl";
+            var generated = Path.GetFileName(file).StartsWith("generated", StringComparison.Ordinal);
+            // generated_test.jsonl comes from a different model family and is ONLY ever test data.
+            var independentTest = Path.GetFileName(file) == "generated_test.jsonl";
             foreach (var line in File.ReadLines(file))
             {
                 var row = JsonSerializer.Deserialize<ExchangeRow>(line, Json)!;
-                var split = generated ? GeneratedSplit(row) : row.Split == "tune" ? "val" : row.Split;
+                var split = independentTest ? "test" : generated ? GeneratedSplit(row) : row.Split == "tune" ? "val" : row.Split;
                 if (split == "train" && row.LabelIssue)
                     continue;
 

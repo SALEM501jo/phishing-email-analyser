@@ -81,27 +81,59 @@ public static class TransformerEvaluation
         Print($"linear model {linear.Model?.Version} (current), same test emails", linearReport);
 
         // ---------------------------------------------------------------- 3. Arabic + generated (content only)
+        // Each group is scored twice: as shipped (Arabic in preview = half weight) and as if Arabic were promoted
+        // to full support. The promoted numbers decide whether Arabic leaves preview - on evidence, not by hand.
         var options = new ScoringOptions { PhishingThreshold = phishingThreshold, SuspiciousThreshold = suspiciousThreshold };
-        var contentOnly = test
-            .Where(r => r.Language == Languages.Arabic || r.Source.StartsWith("generated", StringComparison.Ordinal))
-            .GroupBy(r => r.Language == Languages.Arabic
-                ? (r.Source.StartsWith("generated", StringComparison.Ordinal) ? "ar:generated" : "ar:translated")
-                : "en:generated")
-            .OrderBy(g => g.Key)
-            .ToDictionary(g => g.Key, g =>
+        var promoted = new PromotedLanguage(shipped, Languages.Arabic);
+        static string Group(TrainingRow r) =>
+            $"{r.Language}:" + (r.Source.StartsWith("generated-test", StringComparison.Ordinal) ? "independent"
+                : r.Source.StartsWith("generated", StringComparison.Ordinal) ? "generated" : "translated");
+        var heldOut = test.Where(r => r.Language == Languages.Arabic || r.Source.StartsWith("generated", StringComparison.Ordinal))
+            .Where(r => r.Label != EmailClasses.Spam) // spam excluded, as in the end-to-end numbers
+            .ToList();
+        (BinaryMetrics PhishingVerdict, BinaryMetrics AnyWarning) Score(IEnumerable<TrainingRow> rows, IContentClassifier classifier)
+        {
+            var scored = rows.Select(r => (r.Label == EmailClasses.Phishing, EmailAnalyser.ContentEvidence(classifier.Classify(null, r.Text), options))).ToList();
+            return (Metrics.Binary(scored, phishingThreshold), Metrics.Binary(scored, suspiciousThreshold));
+        }
+        var contentOnly = heldOut.GroupBy(Group).OrderBy(g => g.Key).ToDictionary(g => g.Key, g =>
+        {
+            var asShipped = Score(g, shipped);
+            var ifPromoted = g.Key.StartsWith("ar", StringComparison.Ordinal) ? Score(g, promoted) : asShipped;
+            Console.WriteLine($"  {g.Key,-15} shipped : phishing verdict {asShipped.PhishingVerdict}");
+            Console.WriteLine($"  {"",-15}           any warning      {asShipped.AnyWarning}");
+            if (g.Key.StartsWith("ar", StringComparison.Ordinal))
             {
-                var scored = g.Where(r => r.Label != EmailClasses.Spam)
-                    .Select(r => (r.Label == EmailClasses.Phishing, EmailAnalyser.ContentEvidence(shipped.Classify(null, r.Text), options)))
-                    .ToList();
-                var result = new
-                {
-                    phishingVerdict = Metrics.Binary(scored, phishingThreshold),
-                    anyWarning = Metrics.Binary(scored, suspiciousThreshold),
-                };
-                Console.WriteLine($"  {g.Key,-14} phishing verdict: {result.phishingVerdict}");
-                Console.WriteLine($"  {"",-14} any warning     : {result.anyWarning}");
-                return result;
-            });
+                Console.WriteLine($"  {"",-15} promoted: phishing verdict {ifPromoted.PhishingVerdict}");
+                Console.WriteLine($"  {"",-15}           any warning      {ifPromoted.AnyWarning}");
+            }
+            return new { shipped = new { asShipped.PhishingVerdict, asShipped.AnyWarning }, ifPromoted = new { ifPromoted.PhishingVerdict, ifPromoted.AnyWarning } };
+        });
+
+        // Promotion rule for Arabic, on REALISTIC Arabic mail (LLM-generated, including the independent generator):
+        // few false alarms, most phishing caught, enough data to trust it, and translated mail must not regress.
+        var realistic = heldOut.Where(r => r.Language == Languages.Arabic && Group(r) != "ar:translated").ToList();
+        var translatedArabic = heldOut.Where(r => Group(r) == "ar:translated").ToList();
+        var (realPhishing, realWarning) = Score(realistic, promoted);
+        var (translatedPhishing, _) = Score(translatedArabic, promoted);
+        var checks = new Dictionary<string, bool>
+        {
+            ["at least 100 legitimate and 100 phishing realistic Arabic test emails"] = realPhishing.Count - realPhishing.Positives >= 100 && realPhishing.Positives >= 100,
+            ["legitimate -> 'phishing' at most 1%"] = realPhishing.FalsePositiveRate <= 0.01,
+            ["legitimate -> any warning at most 3%"] = realWarning.FalsePositiveRate <= 0.03,
+            ["phishing gets a warning at least 80%"] = realWarning.Recall >= 0.80,
+            ["translated Arabic: legitimate -> 'phishing' at most 1%"] = translatedPhishing.FalsePositiveRate <= 0.01,
+        };
+        var promote = checks.Values.All(v => v);
+        Console.WriteLine($"\nArabic promotion ({realistic.Count} realistic test emails, full weight): {(promote ? "PROMOTED to full support" : "stays in PREVIEW")}");
+        foreach (var (check, ok) in checks)
+            Console.WriteLine($"  [{(ok ? "x" : " ")}] {check}");
+        if (promote)
+        {
+            saved = saved with { Languages = [Languages.English, Languages.Arabic], PreviewLanguages = null };
+            File.WriteAllText(infoPath, JsonSerializer.Serialize(saved, ContentClassifier.JsonOptions));
+        }
+        var arabicPromotion = new { promoted = promote, checks, realisticArabic = new { phishingVerdict = realPhishing, anyWarning = realWarning } };
 
         // ---------------------------------------------------------------- 4. probes
         var probes = Probes.Select(p =>
@@ -126,6 +158,7 @@ public static class TransformerEvaluation
                 note = "Text-only rows (no sender or links exist for translated/generated mail): content evidence at the tuned thresholds. Spam excluded, as in the end-to-end numbers.",
                 groups = contentOnly,
             },
+            arabicPromotion,
             probes,
             evaluationMinutes = Math.Round(total.Elapsed.TotalMinutes, 1),
         };

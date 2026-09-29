@@ -13,12 +13,15 @@ using PhishingAnalyser.Trainer.Evaluation;
 if (args.ElementAtOrDefault(0) == "--eval-inbox")
 {
     var mbox = args.ElementAtOrDefault(1) ?? throw new ArgumentException("Pass the path of the Takeout .mbox file");
-    var classifier = ContentClassifier.Load(Path.Combine("models", "phishing-content-model.zip"));
+    // Exactly what the API runs: the transformer decides (if present), the linear model explains.
+    var linearModel = ContentClassifier.Load(Path.Combine("models", "phishing-content-model.zip"));
+    IContentClassifier classifier = File.Exists(Path.Combine("models", "transformer", "model.onnx"))
+        ? new HybridContentClassifier(TransformerClassifier.Load(Path.Combine("models", "transformer")), linearModel)
+        : linearModel;
     var scoring = new ScoringOptions();
     if (classifier.Model?.Thresholds is { } t) { scoring.PhishingThreshold = t.Phishing; scoring.SuspiciousThreshold = t.Suspicious; }
-    var analyser = new EmailAnalyser(classifier, new PhishingAnalyser.Core.Rules.HeaderAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default),
-                                     new PhishingAnalyser.Core.Rules.LinkAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default), scoring);
-    var inboxReport = InboxEvaluation.Run(mbox, analyser);
+    Console.WriteLine($"Evaluating model {classifier.Model?.Version} on {mbox}");
+    var inboxReport = InboxEvaluation.Run(mbox, classifier, scoring);
     var reportPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(mbox))!, "inbox-report.json"); // stays in git-ignored data/
     File.WriteAllText(reportPath, JsonSerializer.Serialize(new { model = classifier.Model?.Version, report = inboxReport }, ContentClassifier.JsonOptions));
     Console.WriteLine($"Wrote {reportPath}");
