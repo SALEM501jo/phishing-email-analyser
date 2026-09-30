@@ -39,7 +39,7 @@ public sealed class EmailAnalyser(
     {
         var content = classifier.Classify(email.Subject, email.Body);
         var headers = headerAnalyser.Analyse(email);
-        var links = linkAnalyser.Analyse(email.Links);
+        var links = linkAnalyser.Analyse(email.Links, DomainUtils.GetEmailDomain(email.SenderEmail));
         if (expanded.Count > 0)
             links = links with
             {

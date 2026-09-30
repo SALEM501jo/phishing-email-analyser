@@ -30,8 +30,10 @@ updates:
       - dependency-name: "dotnet/*"
         update-types: ["version-update:semver-major"]
 
+  # The ML pins are frozen on purpose: they reproduce the published model and the Kaggle notebook pins the same
+  # versions (a bump can silently change the ONNX export). Limit 0 stops routine version-bump PRs; Dependabot
+  # SECURITY updates for these packages still arrive, because they don't count against this limit.
   - package-ecosystem: pip
     directory: /ml
     schedule: { interval: monthly }
-    groups:
-      ml: { patterns: ["*"] }
+    open-pull-requests-limit: 0

@@ -33,6 +33,7 @@ internal sealed class FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> 
         $$"""{"objectClassName":"domain","events":[{"eventAction":"registration","eventDate":"{{registered:yyyy-MM-ddTHH:mm:ssZ}}"}]}""";
 }
 
+[Collection(TimingSensitive.Name)]
 public class ReputationTests
 {
     private static ReputationAnalyser Analyser(FakeHandler handler, ThreatFeedStore? feeds = null, int timeoutMs = 2500) =>

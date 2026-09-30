@@ -96,6 +96,7 @@ public class ApiTests(WebApplicationFactory<Program> factory) : IClassFixture<We
     }
 }
 
+[Collection(TimingSensitive.Name)]
 public class ContentClassifierTests
 {
     [Fact]

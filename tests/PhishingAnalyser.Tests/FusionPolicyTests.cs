@@ -117,3 +117,32 @@ public class SisterDomainTests
     [InlineData("github.com", "https://attacker.github.io/login")]
     public void Real_mismatches_and_user_content_hosts_still_fire(string text, string href) => Assert.True(Mismatch(text, href));
 }
+
+/// <summary>Click tracking and platform redirects, found on the owner's real mailbox; phishing-style uses must still fire.</summary>
+public class TrackedLinkTests
+{
+    private static readonly LinkAnalyser Links = new(BrandCatalog.Default);
+
+    private static string[] Codes(string sender, string text, string href) =>
+        Links.Analyse([new EmailLink(text, href)], DomainUtils.GetEmailDomain(sender)).Findings.Select(f => f.Code).ToArray();
+
+    [Fact]
+    public void Platform_notification_through_its_own_redirector_is_not_deception() =>
+        Assert.DoesNotContain("text-href-mismatch", Codes("notify@x.com", "youtu.be/abc123", "https://twitter.com/i/redirect?id=1"));
+
+    [Fact]
+    public void Newsletter_click_tracking_is_reported_weakly()
+    {
+        var codes = Codes("news@openai.com", "openai.com/blog", "https://mandrillapp.com/track/click/123");
+        Assert.Contains("tracked-link", codes);
+        Assert.DoesNotContain("text-href-mismatch", codes);
+    }
+
+    [Fact]
+    public void Brand_text_through_a_tracker_from_someone_else_stays_a_full_mismatch() =>
+        Assert.Contains("text-href-mismatch", Codes("billing@random-shop.com", "www.paypal.com", "https://u123.ct.sendgrid.net/ls/click?x=1"));
+
+    [Fact]
+    public void Only_the_platform_itself_may_route_through_its_redirector() =>
+        Assert.Contains("text-href-mismatch", Codes("alerts@evil-notify.com", "youtu.be/abc123", "https://twitter.com/i/redirect?id=1"));
+}

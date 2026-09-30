@@ -30,17 +30,30 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         ("www.google.com", "q"), ("google.com", "q"), ("safelinks.protection.outlook.com", "url"),
     ];
 
+    // Mailing services and security gateways rewrite every link for click tracking or scanning, so the destination
+    // can't be seen - on the owner's real mailbox these caused most "text shows X, goes to Y" false alarms.
+    // Phishers use the same services, so a tracked link is still reported, just weakly - unless its text claims a
+    // brand the sender isn't (then it stays a full mismatch).
+    private static readonly string[] ClickTrackers =
+    [
+        "mandrillapp.com", "sendgrid.net", "awstrack.me", "list-manage.com", "mcsv.net", "mailchi.mp", "hubspotlinks.com",
+        "mailgun.org", "sparkpostmail.com", "klaviyomail.com", "cmail19.com", "cmail20.com", "exacttarget.com", "rs6.net",
+        "fireeye.com", "urldefense.com", "urldefense.proofpoint.com", "mimecastprotect.com", "cudasvc.com",
+    ];
+
     [GeneratedRegex(@"^(https?://)?([a-z0-9-]+\.)+[a-z]{2,}(/\S*)?$", RegexOptions.IgnoreCase)]
     private static partial Regex LooksLikeUrl();
 
-    public ComponentResult Analyse(IReadOnlyList<EmailLink>? links)
+    /// <param name="senderDomain">The From domain, when known: a platform's own notification routing links through its own
+    /// redirector (an X notification via twitter.com) is not deception.</param>
+    public ComponentResult Analyse(IReadOnlyList<EmailLink>? links, string? senderDomain = null)
     {
         if (links is null || links.Count == 0)
             return new ComponentResult(Source, 0, true, []);
 
         var findings = new List<Finding>();
         foreach (var link in links.Take(MaxLinks))
-            findings.AddRange(AnalyseLink(link));
+            findings.AddRange(AnalyseLink(link, senderDomain));
 
         // One strong signal per rule type is enough; 30 tracking links through the same shortener shouldn't add up.
         var distinct = findings
@@ -52,7 +65,7 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         return new ComponentResult(Source, Scoring.NoisyOr(distinct), true, distinct);
     }
 
-    private IEnumerable<Finding> AnalyseLink(EmailLink link)
+    private IEnumerable<Finding> AnalyseLink(EmailLink link, string? senderDomain)
     {
         var href = Unwrap(link.Href);
         if (href.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ||
@@ -109,8 +122,22 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
                 $"الرابط يخفي النطاق الحقيقي بعد الرمز '@' ({host})");
 
         if (TextDomainMismatch(link.Text, host) is { } shownHost && !SameOwner(shownHost, host))
-            yield return new(Source, "text-href-mismatch", $"Link text shows '{shownHost}' but actually goes to '{host}'", 0.45,
-                $"نص الرابط يعرض '{shownHost}' لكنه في الحقيقة يذهب إلى '{host}'");
+        {
+            var senderBrand = senderDomain is null ? null : brands.OwnerOf(senderDomain);
+            var shownBrand = brands.OwnerOf(shownHost);
+            var platformRedirect = senderBrand is not null && brands.OwnerOf(host) == senderBrand && brands.UserContentPlatform(host) is null;
+            var tracked = ClickTrackers.Any(t => DomainUtils.IsSameOrSubdomain(host, t));
+            if (platformRedirect)
+            {
+                // e.g. an X notification showing a posted youtu.be link, routed through twitter.com - the platform's own redirector.
+            }
+            else if (tracked && (shownBrand is null || shownBrand == senderBrand))
+                yield return new(Source, "tracked-link", $"Link text shows '{shownHost}' but the click goes through the tracking service {host}", 0.1,
+                    $"نص الرابط يعرض '{shownHost}' لكن النقرة تمر عبر خدمة التتبع {host}");
+            else
+                yield return new(Source, "text-href-mismatch", $"Link text shows '{shownHost}' but actually goes to '{host}'", 0.45,
+                    $"نص الرابط يعرض '{shownHost}' لكنه في الحقيقة يذهب إلى '{host}'");
+        }
     }
 
     /// <summary>If the visible link text is itself a URL/domain, returns it when it doesn't match the real host.</summary>

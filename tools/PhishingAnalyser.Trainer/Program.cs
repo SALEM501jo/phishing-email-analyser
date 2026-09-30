@@ -31,6 +31,33 @@ if (args.ElementAtOrDefault(0) == "--eval-inbox")
     return;
 }
 
+if (args.ElementAtOrDefault(0) == "--link-mismatches")
+{
+    // Which domain pairs trigger text-href-mismatch on real mail? Registrable domains and counts only.
+    var links = new PhishingAnalyser.Core.Rules.LinkAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default);
+    var pairs = new Dictionary<string, int>();
+    using var stream = File.OpenRead(args[1]);
+    var parser = new MimeKit.MimeParser(stream, MimeKit.MimeFormat.Mbox);
+    while (!parser.IsEndOfStream)
+    {
+        MimeKit.MimeMessage message;
+        try { message = parser.ParseMessage(); } catch (FormatException) { break; }
+        IReadOnlyList<EmailLink> emailLinks;
+        try { emailLinks = CorpusSources.FromMime(message).Submission?.Links ?? []; } catch (Exception) { continue; }
+        foreach (var link in emailLinks)
+        {
+            if (!links.Analyse([link]).Findings.Any(f => f.Code == "text-href-mismatch")) continue;
+            var shown = PhishingAnalyser.Core.Rules.DomainUtils.GetHost(link.Text!.Trim()) ?? "?";
+            var actual = PhishingAnalyser.Core.Rules.DomainUtils.GetHost(link.Href) ?? "?";
+            var key = $"{PhishingAnalyser.Core.Rules.DomainUtils.RegistrableDomain(shown)} -> {PhishingAnalyser.Core.Rules.DomainUtils.RegistrableDomain(actual)}";
+            pairs[key] = pairs.GetValueOrDefault(key) + 1;
+        }
+    }
+    foreach (var (pair, n) in pairs.OrderByDescending(kv => kv.Value).Take(25))
+        Console.WriteLine($"{n,5}  {pair}");
+    return;
+}
+
 var processedDir = Path.Combine("data", "processed");
 if (args.ElementAtOrDefault(0) == "--prepare-transformer")
 {
@@ -40,6 +67,10 @@ if (args.ElementAtOrDefault(0) == "--prepare-transformer")
 var exportOnly = args.ElementAtOrDefault(0) == "--export-corpus";
 var evaluateTransformer = args.ElementAtOrDefault(0) == "--evaluate-transformer"; // calibrate + evaluate models/transformer/
 var authStats = args.ElementAtOrDefault(0) == "--auth-stats"; // SPF/DKIM/DMARC + verified-brand rates on real phishing
+var establishedStudy = args.ElementAtOrDefault(0) == "--established-sender-study"; // [mbox] - see EstablishedSenderStudy
+var studyMbox = establishedStudy ? args.ElementAtOrDefault(1) : null;
+if (establishedStudy)
+    args = [];
 if (exportOnly || evaluateTransformer || authStats)
     args = args.Skip(1).ToArray();
 
@@ -69,6 +100,19 @@ Console.WriteLine("\nCorpus (after cleaning, de-duplication and caps):");
 foreach (var g in emails.GroupBy(e => (e.Modern ? "modern" : "old", e.Class)).OrderBy(g => g.Key))
     Console.WriteLine($"  {g.Key.Item1,-7} {g.Key.Class,-11} {g.Count(),7}");
 Console.WriteLine($"  splits: old train={oldTrain.Count} old test={oldTest.Count} | modern train={modernTrain.Count} tune={modernTune.Count} test={modernTest.Count}");
+
+if (establishedStudy)
+{
+    // Exactly what the API ships: transformer decides (linear explains), calibrated thresholds, verified-brand trust on.
+    var linearModel = ContentClassifier.Load(Path.Combine("models", "phishing-content-model.zip"));
+    IContentClassifier studyClassifier = File.Exists(Path.Combine("models", "transformer", "model.onnx"))
+        ? new HybridContentClassifier(TransformerClassifier.Load(Path.Combine("models", "transformer")), linearModel)
+        : linearModel;
+    var shippedScoring = new ScoringOptions { TrustVerifiedBrandSenders = true };
+    if (studyClassifier.Model?.Thresholds is { } th) { shippedScoring.PhishingThreshold = th.Phishing; shippedScoring.SuspiciousThreshold = th.Suspicious; }
+    await EstablishedSenderStudy.RunAsync(emails.Where(e => e.Class == EmailClasses.Phishing && e.Modern), studyMbox, studyClassifier, shippedScoring);
+    return;
+}
 
 if (authStats)
 {

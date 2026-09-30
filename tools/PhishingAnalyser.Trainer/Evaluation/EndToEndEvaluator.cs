@@ -35,7 +35,7 @@ public sealed class EndToEndEvaluator(IContentClassifier classifier, ScoringOpti
             };
             var content = classifier.Classify(domView.Subject, domView.Body);
             var headers = _headers.Analyse(domView);
-            var links = _links.Analyse(domView.Links);
+            var links = _links.Analyse(domView.Links, DomainUtils.GetEmailDomain(domView.SenderEmail));
             var contentEvidence = EmailAnalyser.ContentEvidence(content, options);
             var final = Scoring.NoisyOr([contentEvidence, headers.Score, links.Score]);
             var codes = headers.Findings.Concat(links.Findings).Where(f => f.Weight > 0).Select(f => f.Code).Distinct().ToList();

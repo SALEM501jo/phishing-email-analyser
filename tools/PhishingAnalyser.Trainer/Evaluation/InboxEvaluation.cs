@@ -141,7 +141,7 @@ public static class InboxEvaluation
     };
 
     /// <summary>Own "Phishing" label first, then the Spam folder, then Gmail's inbox categories.</summary>
-    private static string? Categorise(string labels)
+    internal static string? Categorise(string labels)
     {
         var set = labels.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.Replace("\"", ""))                    // Takeout quotes category names: الفئة ""تحديثات""
@@ -160,7 +160,7 @@ public static class InboxEvaluation
     }
 
     /// <summary>What the extension would send, including real headers (Takeout keeps Gmail's Authentication-Results).</summary>
-    private static EmailSubmission ToSubmission(MimeMessage message)
+    internal static EmailSubmission ToSubmission(MimeMessage message)
     {
         var s = CorpusSources.FromMime(message).Submission!;
         return new EmailSubmission
