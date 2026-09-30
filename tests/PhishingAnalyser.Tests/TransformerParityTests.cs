@@ -6,7 +6,7 @@ namespace PhishingAnalyser.Tests;
 /// <summary>
 /// The transformer is trained in Python and served in .NET; if the two tokenise differently the model silently
 /// sees garbage. parity.json (written at training time) holds the Python token ids and logits for real English
-/// and Arabic test emails - .NET must reproduce the ids exactly and the logits to within float tolerance.
+/// and Arabic test emails - .NET must reproduce the ids exactly, and the logits within int8 cross-CPU tolerance.
 /// These tests are no-ops until a transformer has been trained (models/transformer/ absent).
 /// </summary>
 public class TransformerParityTests
@@ -30,6 +30,12 @@ public class TransformerParityTests
             Assert.Equal(f.InputIds, model.Encode(f.Text));
     }
 
+    // The int8 model's logits depend slightly on the CPU's instruction set (the model file itself is byte-identical):
+    // up to 0.19 measured between a Kaggle Xeon, this laptop and GitHub's runners. Token ids above stay EXACT -
+    // that is the check that caught the real tokenizer bug. Here: logits within a quantisation tolerance, and the
+    // same predicted class whenever Python's decision isn't a near-tie.
+    private const float LogitTolerance = 0.3f;
+
     [Fact]
     public void Dotnet_inference_matches_python_logits()
     {
@@ -39,7 +45,11 @@ public class TransformerParityTests
         {
             var logits = model.Logits(f.Text);
             for (var i = 0; i < logits.Length; i++)
-                Assert.InRange(logits[i], f.Logits[i] - 1e-3f, f.Logits[i] + 1e-3f);
+                Assert.InRange(logits[i], f.Logits[i] - LogitTolerance, f.Logits[i] + LogitTolerance);
+
+            var sorted = f.Logits.OrderDescending().ToArray();
+            if (sorted[0] - sorted[1] > 2 * LogitTolerance)
+                Assert.Equal(Array.IndexOf(f.Logits, sorted[0]), Array.IndexOf(logits, logits.Max()));
         }
     }
 }
