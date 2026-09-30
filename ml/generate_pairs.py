@@ -31,6 +31,7 @@ import random
 import re
 import sys
 import threading
+import zlib
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -180,6 +181,13 @@ class Ollama:
         return json.loads(response.json()["message"]["content"])
 
 
+# Round 3: legitimate transactional/promotional mail is where both models failed (an Apple receipt scored >90%
+# phishing), so --focus transactional samples these types 3x as often. Each still gets its malicious twin.
+TRANSACTIONAL = {"password-reset", "otp-code", "shipping-notice", "receipt", "bill", "bank-statement", "money-transfer",
+                 "security-alert", "travel", "newsletter", "offer", "government-service"}
+FOCUS_WEIGHT = 3
+
+
 def build_plan(args, rng):
     plan = []
     for lang, n in (("ar", args.pairs_ar), ("en", args.pairs_en)):
@@ -187,7 +195,7 @@ def build_plan(args, rng):
         registers = REGISTERS[lang]
         for i in range(n):
             brand = rng.choice(brands)
-            etype = rng.choice(TYPES)
+            etype = rng.choices(TYPES, weights=[FOCUS_WEIGHT if args.focus == "transactional" and t[0] in TRANSACTIONAL else 1 for t in TYPES])[0]
             register = rng.choices(registers, weights=[r[2] for r in registers])[0]
             plan.append((lang, i, brand, etype, register, rng.random() < 0.5, rng.choice(NAMES_AR if lang == "ar" else NAMES_EN)))
     # Interleave languages so a time-limited run still yields both.
@@ -205,6 +213,7 @@ def main():
     ap.add_argument("--hosts", default="http://localhost:11434", help="comma-separated Ollama base URLs")
     ap.add_argument("--workers", type=int, default=4, help="requests in flight (Ollama batches them per server)")
     ap.add_argument("--test-set", action="store_true", help="write generated_test.jsonl (independent generator, test only)")
+    ap.add_argument("--focus", choices=["all", "transactional"], default="all")
     ap.add_argument("--max-minutes", type=float, default=0, help="stop cleanly after this long (0 = no limit)")
     args = ap.parse_args()
 
@@ -214,7 +223,8 @@ def main():
     if out_path.exists():
         done = {json.loads(line)["id"] for line in out_path.read_text(encoding="utf-8").splitlines() if line.strip()}
 
-    rng = random.Random(args.seed + (1000 if args.test_set else 0))
+    # Different scenarios per generator (and for test sets), so two generators never write the same plan.
+    rng = random.Random(args.seed + zlib.crc32(args.model.encode()) + (1000 if args.test_set else 0))
     plan = build_plan(args, rng)
     ollama = Ollama([h.strip() for h in args.hosts.split(",") if h.strip()], args.model)
     kind = "test" if args.test_set else "train"
@@ -226,7 +236,7 @@ def main():
 
     def job(item, label):
         lang, i, (brand, domain, _), (etype, legit_desc, bad_desc, bad_label), (register, register_desc, _), subtle, name = item
-        pair_key = f"{kind}|{lang}|{register}|{i}|{brand}|{etype}"
+        pair_key = f"{kind}|{args.model}|{lang}|{register}|{i}|{brand}|{etype}"
         row_id = hashlib.sha256(f"{pair_key}|{label}|{args.model}".encode()).hexdigest()[:16]
         if row_id in done or (deadline and time.time() > deadline):
             return

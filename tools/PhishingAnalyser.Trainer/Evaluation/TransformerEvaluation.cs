@@ -85,9 +85,12 @@ public static class TransformerEvaluation
         // to full support. The promoted numbers decide whether Arabic leaves preview - on evidence, not by hand.
         var options = new ScoringOptions { PhishingThreshold = phishingThreshold, SuspiciousThreshold = suspiciousThreshold };
         var promoted = new PromotedLanguage(shipped, Languages.Arabic);
+        // Test-only generated mail is reported per generator: a generator that was ALSO used for training (e.g. Gemma
+        // after round 3) is no longer independent evidence, so each one must be visible separately.
         static string Group(TrainingRow r) =>
-            $"{r.Language}:" + (r.Source.StartsWith("generated-test", StringComparison.Ordinal) ? "independent"
+            $"{r.Language}:" + (r.Source.StartsWith("generated-test", StringComparison.Ordinal) ? $"test-only {Generator(r.Source)}"
                 : r.Source.StartsWith("generated", StringComparison.Ordinal) ? "generated" : "translated");
+        static string Generator(string source) => source[(source.IndexOf('(') + 1)..].TrimEnd(')').Split(':')[0];
         var heldOut = test.Where(r => r.Language == Languages.Arabic || r.Source.StartsWith("generated", StringComparison.Ordinal))
             .Where(r => r.Label != EmailClasses.Spam) // spam excluded, as in the end-to-end numbers
             .ToList();

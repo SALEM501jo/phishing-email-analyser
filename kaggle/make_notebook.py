@@ -13,6 +13,9 @@ Runs the GPU-heavy steps on Kaggle's free GPU, because the owner's laptop GPU cr
 
 Every step is resumable. If the session ends early, run again and it continues.
 
+**Round 3 (transactional mail):** training data from Qwen 2.5 14B and Gemma 2 9B, focused on legitimate
+receipts/OTPs/resets/bank alerts/newsletters and their phishing twins; test-only data from Mistral NeMo.
+
 **Round 2 (Arabic):** realistic Arabic mail from Qwen 2.5 14B (bills, banks, CliQ, government, university,
 colleagues; formal, Jordanian colloquial and mixed Arabic-English), plus an independent test set written by a
 different model family (Gemma 2) so that learning one generator's style can't pass as accuracy."""),
@@ -71,19 +74,22 @@ if shutil.which('ollama'):
         servers.append(subprocess.Popen(['ollama', 'serve'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     time.sleep(15)
     pulled = [subprocess.run(['ollama', 'pull', m], env=dict(os.environ, OLLAMA_HOST='127.0.0.1:11434'), capture_output=True).returncode == 0
-              for m in ('gemma2:9b', 'qwen2.5:14b-instruct')]
+              for m in ('mistral-nemo', 'gemma2:9b', 'qwen2.5:14b-instruct')]
     GENERATE = all(pulled)
 print('generation:', 'ON (2 GPUs)' if GENERATE else f'SKIPPED (pulled: {pulled if servers else "no ollama"})')"""),
 
-    ("code", """# 4a. Independent TEST set first (small, ~1 h): a different model family, so the score can't come from
-#     learning Qwen's writing style. Saved to the Output immediately.
+    ("code", """# 4a. Independent TEST set first (~75 min): Mistral NeMo writes it and is NEVER used for training, so a good score
+#     can't come from learning a training generator's style. (Round 2's Gemma test rows stay test-only too.)
 if GENERATE:
-    !python ml/generate_pairs.py --test-set --model gemma2:9b --pairs-ar 250 --pairs-en 60 --hosts {HOSTS} --workers 8 --max-minutes 75
+    !python ml/generate_pairs.py --test-set --model mistral-nemo --focus transactional --pairs-ar 300 --pairs-en 150 --hosts {HOSTS} --workers 8 --max-minutes 75
     !zip -qj /kaggle/working/generated.zip data/processed/generated*.jsonl"""),
 
-    ("code", """# 4b. Training material (~5.5 h cap): realistic Arabic (and some English) legitimate/phishing/spam pairs.
+    ("code", """# 4b. Training material from TWO generators (~5 h cap), focused on legitimate transactional/promotional mail
+#     (receipts, OTPs, resets, bank alerts, newsletters) - where rounds 1-2 scored real receipts as phishing.
 if GENERATE:
-    !python ml/generate_pairs.py --model qwen2.5:14b-instruct --pairs-ar 2400 --pairs-en 500 --hosts {HOSTS} --workers 8 --max-minutes 330
+    !python ml/generate_pairs.py --model gemma2:9b --focus transactional --pairs-ar 1200 --pairs-en 1200 --hosts {HOSTS} --workers 8 --max-minutes 110
+    !zip -qj /kaggle/working/generated.zip data/processed/generated*.jsonl
+    !python ml/generate_pairs.py --model qwen2.5:14b-instruct --focus transactional --pairs-ar 1500 --pairs-en 1500 --hosts {HOSTS} --workers 8 --max-minutes 190
     !zip -qj /kaggle/working/generated.zip data/processed/generated*.jsonl && ls -la /kaggle/working/generated.zip
 for s in servers:
     s.terminate()   # free both GPUs for training
