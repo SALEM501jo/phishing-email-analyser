@@ -13,6 +13,7 @@ TestResults/
 /models/*.zip
 /models/transformer/
 /models/transformer-best/
+/models/transformer-round*/
 
 # Local ML environment and logs
 ml/.venv/

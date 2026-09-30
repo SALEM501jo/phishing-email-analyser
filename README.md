@@ -108,6 +108,37 @@ The transformer catches **116 more of 711 phishing emails with fewer false alarm
 
 Promoting Arabic needs realistic Arabic legitimate mail. The pipeline for that is ready: `generate_pairs.py`, plus the broken-translation filter, which now drops 735 degenerate NLLB outputs.
 
+**Round 2 (trained, measured, and rejected on purpose).**
+
+What was added:
+- 4,563 more generated emails from Qwen 2.5 14B, mostly Arabic, covering bills, banks, CliQ, government, university and colleague mail;
+- an **independent test set of 608 emails written by a different model family** (Gemma 2).
+
+What improved:
+- On realistic Arabic, legitimate emails wrongly called "phishing" fell from **14% to 1.15%** on same-generator text.
+- The harmless Arabic "order shipped" probe fell from 61% to 7%.
+- English test-set numbers were unchanged: 79.6% "phishing" recall, 0.12% false positives, and less spam called phishing.
+
+Why it wasn't shipped:
+- On the independent Gemma set, 5.3% of legitimate emails were still called phishing. Part of the gain was the model learning one generator's style, so Arabic correctly stayed in preview.
+- The API contract test *"marketing email is reported as spam, not phishing"* **failed**: a generic "50% off" promo scored 92% phishing, against 26% before. Round 1 stays the shipped model.
+
+**Found along the way, in both models:** legitimate English *transactional* mail scores high on text alone. On a new 20-email probe set:
+
+| Legitimate email | Phishing score (text only) |
+|---|---|
+| Apple receipt | 91–95% |
+| Password reset the user requested | 72–88% |
+| Uber receipt | 68–79% |
+| OTP code | 65–69% |
+
+The test sets never showed this, because their modern legitimate English mail is all mailing lists. These probes now run in every evaluation.
+
+**Round 3 plan:**
+- large numbers of legitimate transactional and promotional emails in both languages, each paired with a phishing twin;
+- training data from two generators, with a third reserved for testing;
+- the real-inbox evaluation as the final check.
+
 ### Techniques that made the difference
 - **Confident learning (label cleaning):** the honeypot also catches marketing, and the spam trap also catches phishing. Each noisy email is scored by a model that never saw it (3-fold, split by campaign). Training emails whose label the model confidently rejects are dropped, 489 in total: 271 "phishing" that were really spam, 72 "spam" that were really phishing, and so on. Test data is never cleaned. (Northcutt et al., 2021, the idea behind *cleanlab*.)
 - **Platt calibration:** the phishing probability is rescaled on held-out data so that 0.8 means roughly 80%. For the linear model the Brier score went 0.0438 → 0.0422; for the over-confident transformer it went 0.0475 → 0.0416 (A = 0.47).
