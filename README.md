@@ -157,6 +157,33 @@ Measured on modern mail:
 - **Rule firing rates:** every rule fires on ≤ 0.3% of legitimate mail. The URL shortener rule fires on 14.7% of phishing.
 - **Real headers on 3,120 phishing emails:** only **31%** fail any SPF/DKIM/DMARC/compauth check, and **31% pass all of them**. Email authentication alone would miss most phishing, which is why content and link analysis exist.
 
+### Real-mailbox evaluation: the number the test set hid
+The test set's "legitimate" mail is developer mailing lists. A real inbox is mostly notifications, receipts and social updates. The owner's own mailbox was used, **evaluation only, never training**:
+- it was exported with Google Takeout, stays on the machine and is git-ignored;
+- the report holds counts and rule codes only.
+
+Across the categories Gmail considers legitimate, the analyser warned on far more real mail than the test set suggested (4,680 messages):
+
+| Gmail category | Warned (before) | Warned (verified-brand trust on) |
+|---|---|---|
+| Social (EN, 2,053) | 21.3% | **10.6%** |
+| Updates (EN, 1,984) | 32.3% | 28.0% |
+| Purchases (EN, 50) | 98% | 94% |
+| Updates (AR, 242) | 81.8% | **18.2%** |
+
+What the diagnostics showed:
+- **The text model is the cause.** Nearly all warnings came from wording alone (594 of 640 in English Updates), not from rules. The model has never seen real receipts and notifications.
+- **Verified-brand trust** (now on by default) damps the wording score when three things hold:
+  - SPF, DKIM and DMARC all pass;
+  - the sender is a catalogued brand's own domain;
+  - every link stays on that brand's domains.
+- **Checked against 3,120 real phishing emails with genuine headers** before shipping:
+  - the first version trusted 6.1% of them, mostly free `gmail.com`/`icloud.com` accounts and real GitHub/Google notifications carrying attacker links;
+  - after closing those holes, only **0.13%** (4 emails) qualify.
+- **Two retrained candidate models were rejected on this evaluation.** Their test-set gains did not hold on real mail.
+
+This is the project's most important open problem. Fixing it needs real legitimate transactional mail to train on, which no public corpus provides.
+
 ### Honest limitations
 - **No modern legitimate *transactional or marketing* mail:** there are no newsletters, receipts or password resets from real companies, because no public corpus exists. A genuine "Reset your password" email still scores 75% phishing on text alone. The fix is labelled mail from real inboxes.
 - **Legitimate mail is tech-flavoured:** modern legitimate mail comes from developer mailing lists, so its vocabulary leans technical.
