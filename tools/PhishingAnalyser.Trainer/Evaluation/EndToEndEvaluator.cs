@@ -112,6 +112,8 @@ public sealed class EndToEndEvaluator(IContentClassifier classifier, ScoringOpti
             ["no-dkim-and-no-spf-pass"] = Rate("auth-none"),
             ["compauth-fail"] = Rate("compauth-fail"),
             ["all-pass"] = Rate("auth-pass"),
+            // Safety check for ScoringOptions.TrustVerifiedBrandSenders: how often real phishing would earn that trust.
+            ["verified-brand-sender"] = Rate("verified-brand-sender"),
             ["any-auth-failure"] = Math.Round(codes.Count(c => c.Overlaps(["dmarc-fail", "spf-fail", "dkim-fail", "compauth-fail"])) / (double)Math.Max(1, codes.Count), 4),
         };
     }

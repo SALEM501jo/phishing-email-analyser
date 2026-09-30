@@ -108,12 +108,20 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
             yield return new(Source, "userinfo-url", $"Link hides its real host after an '@' ({host})", 0.4,
                 $"الرابط يخفي النطاق الحقيقي بعد الرمز '@' ({host})");
 
-        if (TextDomainMismatch(link.Text, host) is { } shownHost)
+        if (TextDomainMismatch(link.Text, host) is { } shownHost && !SameOwner(shownHost, host))
             yield return new(Source, "text-href-mismatch", $"Link text shows '{shownHost}' but actually goes to '{host}'", 0.45,
                 $"نص الرابط يعرض '{shownHost}' لكنه في الحقيقة يذهب إلى '{host}'");
     }
 
     /// <summary>If the visible link text is itself a URL/domain, returns it when it doesn't match the real host.</summary>
+    /// <summary>
+    /// "facebook.com" text linking to facebookmail.com, or "x.com" to t.co, is the same company, not deception.
+    /// Never for user-content hosts (amazonaws.com, github.io...): anyone can publish there under the brand's domain.
+    /// </summary>
+    private bool SameOwner(string shownHost, string actualHost) =>
+        brands.UserContentPlatform(actualHost) is null
+        && brands.OwnerOf(shownHost) is { } owner && brands.OwnerOf(actualHost) == owner;
+
     private static string? TextDomainMismatch(string? text, string actualHost)
     {
         if (string.IsNullOrWhiteSpace(text))

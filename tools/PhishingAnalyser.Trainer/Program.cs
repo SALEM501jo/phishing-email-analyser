@@ -39,7 +39,8 @@ if (args.ElementAtOrDefault(0) == "--prepare-transformer")
 }
 var exportOnly = args.ElementAtOrDefault(0) == "--export-corpus";
 var evaluateTransformer = args.ElementAtOrDefault(0) == "--evaluate-transformer"; // calibrate + evaluate models/transformer/
-if (exportOnly || evaluateTransformer)
+var authStats = args.ElementAtOrDefault(0) == "--auth-stats"; // SPF/DKIM/DMARC + verified-brand rates on real phishing
+if (exportOnly || evaluateTransformer || authStats)
     args = args.Skip(1).ToArray();
 
 var dataDir = args.ElementAtOrDefault(0) ?? Path.Combine("data", "raw");
@@ -68,6 +69,20 @@ Console.WriteLine("\nCorpus (after cleaning, de-duplication and caps):");
 foreach (var g in emails.GroupBy(e => (e.Modern ? "modern" : "old", e.Class)).OrderBy(g => g.Key))
     Console.WriteLine($"  {g.Key.Item1,-7} {g.Key.Class,-11} {g.Count(),7}");
 Console.WriteLine($"  splits: old train={oldTrain.Count} old test={oldTest.Count} | modern train={modernTrain.Count} tune={modernTune.Count} test={modernTest.Count}");
+
+if (authStats)
+{
+    var stats = new EndToEndEvaluator(new UnavailableContentClassifier(), new ScoringOptions())
+        .AuthenticationStats(emails.Where(e => e.Class == EmailClasses.Phishing));
+    Console.WriteLine("Real phishing with genuine headers: " + string.Join(", ", stats.Select(kv => $"{kv.Key}={kv.Value}")));
+    var headerRules = new PhishingAnalyser.Core.Rules.HeaderAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default);
+    var verifiedDomains = emails.Where(e => e.Class == EmailClasses.Phishing && !string.IsNullOrEmpty(e.Submission?.RawHeaders))
+        .Where(e => headerRules.Analyse(e.Submission!).Findings.Any(f => f.Code == "verified-brand-sender"))
+        .GroupBy(e => PhishingAnalyser.Core.Rules.DomainUtils.GetEmailDomain(e.Submission!.SenderEmail) ?? "?")
+        .OrderByDescending(g => g.Count()).Take(15);
+    Console.WriteLine("Phishing that earns verified-brand trust, by sender domain: " + string.Join(", ", verifiedDomains.Select(g => $"{g.Key}={g.Count()}")));
+    return;
+}
 
 if (evaluateTransformer)
 {

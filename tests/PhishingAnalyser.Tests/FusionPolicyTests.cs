@@ -64,6 +64,23 @@ public class FusionPolicyTests
     }
 
     [Fact]
+    public void Free_mail_accounts_get_no_trust_even_though_the_provider_is_a_brand()
+    {
+        // Found on real data: 154 phishing emails from @gmail.com passed DMARC and matched "Google".
+        var fromGmail = Receipt("apple.billing.team@gmail.com", string.Format(Pass, "gmail.com", "Apple", "apple.billing.team@gmail.com"));
+        Assert.DoesNotContain(Analyser(0.99, false, true).Analyse(fromGmail).Breakdown.Headers.Findings, f => f.Code == "verified-brand-sender");
+    }
+
+    [Fact]
+    public void Genuine_brand_notification_with_a_link_elsewhere_gets_no_trust()
+    {
+        // e.g. a real GitHub/Google notification carrying attacker-written text and an outside link.
+        var abused = Receipt(rawHeaders: string.Format(Pass, "email.apple.com", "Apple", "no_reply@email.apple.com"),
+            links: [new EmailLink("View receipt", "https://apple-billing-review.com/login")]);
+        Assert.DoesNotContain(Analyser(0.99, false, true).Analyse(abused).Breakdown.Headers.Findings, f => f.Code == "verified-brand-sender");
+    }
+
+    [Fact]
     public void Unauthenticated_mail_claiming_a_brand_domain_gets_no_trust()
     {
         // No raw headers (DOM-only mode): the From address alone proves nothing.
@@ -78,4 +95,25 @@ public class FusionPolicyTests
         public ModelInfo? Model => null;
         public ContentResult Classify(string? subject, string? body) => result;
     }
+}
+
+/// <summary>Link text vs destination: the same company's sister domains are not deception; user-content hosts always are suspect.</summary>
+public class SisterDomainTests
+{
+    private static readonly LinkAnalyser Links = new(BrandCatalog.Default);
+
+    private static bool Mismatch(string text, string href) =>
+        Links.Analyse([new EmailLink(text, href)]).Findings.Any(f => f.Code == "text-href-mismatch");
+
+    [Theory]
+    [InlineData("facebook.com", "https://www.facebookmail.com/n/?id=1")]
+    [InlineData("x.com", "https://t.co/abc123")]
+    [InlineData("www.linkedin.com", "https://lnkd.in/xyz")]
+    public void Same_company_sister_domains_are_not_a_mismatch(string text, string href) => Assert.False(Mismatch(text, href));
+
+    [Theory]
+    [InlineData("paypal.com", "https://paypal-account-review.com/login")]
+    [InlineData("amazon.com", "https://amazon-billing.s3.amazonaws.com/login.html")] // same "owner", but anyone can host there
+    [InlineData("github.com", "https://attacker.github.io/login")]
+    public void Real_mismatches_and_user_content_hosts_still_fire(string text, string href) => Assert.True(Mismatch(text, href));
 }

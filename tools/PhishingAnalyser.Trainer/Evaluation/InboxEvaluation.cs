@@ -20,14 +20,19 @@ namespace PhishingAnalyser.Trainer.Evaluation;
 /// </summary>
 public static class InboxEvaluation
 {
-    public static object Run(string mboxPath, IContentClassifier classifier, ScoringOptions scoring, int maxEnglishPerCategory = 1500)
+    public static object Run(string mboxPath, IContentClassifier classifier, ScoringOptions scoring, int maxEnglishPerCategory = 100_000)
     {
         var headers = new Core.Rules.HeaderAnalyser(Core.Rules.BrandCatalog.Default);
         var links = new Core.Rules.LinkAnalyser(Core.Rules.BrandCatalog.Default);
         var shipped = new EmailAnalyser(classifier, headers, links, scoring);
         var promoted = new EmailAnalyser(new PromotedLanguage(classifier, Languages.Arabic), headers, links, scoring);
+        var trusting = new EmailAnalyser(classifier, headers, links, new ScoringOptions
+        {
+            ContentWeight = scoring.ContentWeight, PhishingThreshold = scoring.PhishingThreshold,
+            SuspiciousThreshold = scoring.SuspiciousThreshold, TrustVerifiedBrandSenders = true,
+        });
 
-        var groups = new Dictionary<(string Category, string Language), List<(string Shipped, string Promoted)>>();
+        var groups = new Dictionary<(string Category, string Language), List<Row>>();
         var parsed = 0;
         using var stream = File.OpenRead(mboxPath);
         var parser = new MimeParser(stream, MimeFormat.Mbox);
@@ -51,8 +56,19 @@ public static class InboxEvaluation
             var key = (category, result.Language);
             if (result.Language != Languages.Arabic && groups.TryGetValue(key, out var existing) && existing.Count >= maxEnglishPerCategory)
                 continue; // keep every Arabic email - they are the scarce ones
-            var promotedVerdict = result.Language == Languages.Arabic ? promoted.Analyse(submission).Verdict : result.Verdict;
-            (groups.TryGetValue(key, out var list) ? list : groups[key] = []).Add((result.Verdict, promotedVerdict));
+
+            // Diagnostics - rule CODES and flags only, never text: which signal drives each warning?
+            var b = result.Breakdown;
+            var findings = b.Headers.Findings.Concat(b.Links.Findings)
+                .Concat(b.Attachments?.Findings ?? []).Concat(b.Obfuscation?.Findings ?? []).Concat(b.Reputation?.Findings ?? []).ToList();
+            var otherEvidence = b.Headers.Score + b.Links.Score + (b.Attachments?.Score ?? 0) + (b.Obfuscation?.Score ?? 0) + (b.Reputation?.Score ?? 0);
+            (groups.TryGetValue(key, out var list) ? list : groups[key] = []).Add(new Row(
+                result.Verdict,
+                result.Language == Languages.Arabic ? promoted.Analyse(submission).Verdict : result.Verdict,
+                trusting.Analyse(submission).Verdict,
+                TextOnly: result.Verdict != Verdicts.Safe && otherEvidence <= 0,
+                VerifiedBrand: findings.Any(f => f.Code == "verified-brand-sender"),
+                Codes: [.. findings.Where(f => f.Weight > 0).Select(f => f.Code).Distinct()]));
         }
 
         Console.WriteLine($"\nYour mailbox ({parsed} messages read; evaluation only, counts only):");
@@ -61,26 +77,40 @@ public static class InboxEvaluation
             kv => $"{kv.Key.Category} [{kv.Key.Language}]",
             kv =>
             {
-                var shippedCounts = Count(kv.Value.Select(v => v.Shipped));
-                var promotedCounts = Count(kv.Value.Select(v => v.Promoted));
-                Print($"{kv.Key.Category} [{kv.Key.Language}]", kv.Value.Count, shippedCounts);
+                var rows = kv.Value;
+                var shippedCounts = Count(rows.Select(v => v.Shipped));
+                var promotedCounts = Count(rows.Select(v => v.Promoted));
+                var trustingCounts = Count(rows.Select(v => v.WithBrandTrust));
+                Print($"{kv.Key.Category} [{kv.Key.Language}]", rows.Count, shippedCounts);
                 if (kv.Key.Language == Languages.Arabic)
-                    Print("  ...if Arabic promoted", kv.Value.Count, promotedCounts);
+                    Print("  ...if Arabic promoted", rows.Count, promotedCounts);
+                Print("  ...with verified-brand trust", rows.Count, trustingCounts);
+                var warned = rows.Where(r => r.Shipped != Verdicts.Safe).ToList();
+                var topCodes = warned.SelectMany(r => r.Codes).GroupBy(c => c).OrderByDescending(g => g.Count()).Take(6)
+                    .ToDictionary(g => g.Key, g => g.Count());
+                Console.WriteLine($"      warnings from text alone: {warned.Count(r => r.TextOnly)}/{warned.Count}; verified-brand mail: {rows.Count(r => r.VerifiedBrand)}; " +
+                                  $"top rules on warned: {string.Join(", ", topCodes.Select(kv2 => $"{kv2.Key}={kv2.Value}"))}");
                 return new
                 {
-                    count = kv.Value.Count,
+                    count = rows.Count,
                     shipped = shippedCounts,
                     ifArabicPromoted = kv.Key.Language == Languages.Arabic ? promotedCounts : null,
+                    withVerifiedBrandTrust = trustingCounts,
+                    warningsFromTextAlone = warned.Count(r => r.TextOnly),
+                    verifiedBrandMail = rows.Count(r => r.VerifiedBrand),
+                    topRulesOnWarned = topCodes,
                 };
             });
 
         return new
         {
-            note = "Gmail labels used as reference (a user label 'Phishing' = known phishing); counts only, no content stored",
+            note = "Gmail labels used as reference (a user label 'Phishing' = known phishing); counts and rule codes only, no content stored",
             messagesRead = parsed,
             groups = report,
         };
     }
+
+    private sealed record Row(string Shipped, string Promoted, string WithBrandTrust, bool TextOnly, bool VerifiedBrand, string[] Codes);
 
     private static Dictionary<string, int> Count(IEnumerable<string> verdicts)
     {
@@ -93,20 +123,39 @@ public static class InboxEvaluation
         Console.WriteLine($"  {label,-28} {n,5}  {c[Verdicts.Phishing],9} {c[Verdicts.Suspicious],10} {c[Verdicts.Safe],6}   " +
                           $"{(c[Verdicts.Phishing] + c[Verdicts.Suspicious]) / (double)Math.Max(1, n):P1}");
 
+    // Takeout writes Gmail's system labels in the account's UI language. English and Arabic names map to one key.
+    private static readonly Dictionary<string, string> LabelKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Phishing"] = "phishing", ["تصيد"] = "phishing", ["تصيّد"] = "phishing",
+        ["Spam"] = "spam", ["الرسائل غير المرغوب فيها"] = "spam",
+        ["Chat"] = "chat", ["الدردشة"] = "chat",
+        ["Sent"] = "sent", ["تم الإرسال"] = "sent",
+        ["Drafts"] = "drafts", ["مسودّات"] = "drafts", ["مسودات"] = "drafts",
+        ["Inbox"] = "inbox", ["البريد الوارد"] = "inbox",
+        ["Category Promotions"] = "promotions", ["الفئة العروض الترويجية"] = "promotions",
+        ["Category Purchases"] = "purchases", ["الفئة عمليات الشراء"] = "purchases", ["فئة الفواتير"] = "purchases",
+        ["Category Updates"] = "updates", ["الفئة تحديثات"] = "updates",
+        ["Category Social"] = "social", ["الفئة اجتماعية"] = "social",
+        ["Category Travel"] = "updates", ["الفئة سفر"] = "updates",
+        ["Category Personal"] = "primary", ["الفئة شخصية"] = "primary",
+    };
+
     /// <summary>Own "Phishing" label first, then the Spam folder, then Gmail's inbox categories.</summary>
     private static string? Categorise(string labels)
     {
         var set = labels.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Replace("\"", ""))                    // Takeout quotes category names: الفئة ""تحديثات""
+            .Select(l => LabelKeys.GetValueOrDefault(l, l))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (set.Contains("Phishing")) return "phishing-labelled";
-        if (set.Contains("Spam")) return "spam-folder";
-        if (set.Contains("Chat") || set.Contains("Sent") && !set.Contains("Inbox"))
-            return null; // own messages and chats aren't incoming mail
-        if (set.Contains("Category Promotions")) return "promotions";
-        if (set.Contains("Category Purchases")) return "purchases";
-        if (set.Contains("Category Updates")) return "updates";
-        if (set.Contains("Category Social")) return "social";
-        if (set.Contains("Inbox") || set.Contains("Category Personal")) return "primary";
+        if (set.Contains("phishing")) return "phishing-labelled";
+        if (set.Contains("spam")) return "spam-folder";
+        if (set.Contains("chat") || set.Contains("drafts") || set.Contains("sent") && !set.Contains("inbox"))
+            return null; // own messages, drafts and chats aren't incoming mail
+        if (set.Contains("promotions")) return "promotions";
+        if (set.Contains("purchases")) return "purchases";
+        if (set.Contains("updates")) return "updates";
+        if (set.Contains("social")) return "social";
+        if (set.Contains("inbox") || set.Contains("primary")) return "primary";
         return null;
     }
 
