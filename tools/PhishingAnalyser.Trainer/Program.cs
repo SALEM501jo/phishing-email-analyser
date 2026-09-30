@@ -15,14 +15,17 @@ if (args.ElementAtOrDefault(0) == "--eval-inbox")
     var mbox = args.ElementAtOrDefault(1) ?? throw new ArgumentException("Pass the path of the Takeout .mbox file");
     // Exactly what the API runs: the transformer decides (if present), the linear model explains.
     var linearModel = ContentClassifier.Load(Path.Combine("models", "phishing-content-model.zip"));
-    IContentClassifier classifier = File.Exists(Path.Combine("models", "transformer", "model.onnx"))
-        ? new HybridContentClassifier(TransformerClassifier.Load(Path.Combine("models", "transformer")), linearModel)
+    // --model <dir> evaluates another transformer (e.g. a candidate round) on the same mailbox, for a fair comparison.
+    var modelIndex = Array.IndexOf(args, "--model");
+    var transformerDir = modelIndex > 0 && modelIndex + 1 < args.Length ? args[modelIndex + 1] : Path.Combine("models", "transformer");
+    IContentClassifier classifier = File.Exists(Path.Combine(transformerDir, "model.onnx"))
+        ? new HybridContentClassifier(TransformerClassifier.Load(transformerDir), linearModel)
         : linearModel;
     var scoring = new ScoringOptions();
     if (classifier.Model?.Thresholds is { } t) { scoring.PhishingThreshold = t.Phishing; scoring.SuspiciousThreshold = t.Suspicious; }
     Console.WriteLine($"Evaluating model {classifier.Model?.Version} on {mbox}");
     var inboxReport = InboxEvaluation.Run(mbox, classifier, scoring);
-    var reportPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(mbox))!, "inbox-report.json"); // stays in git-ignored data/
+    var reportPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(mbox))!, $"inbox-report-{classifier.Model?.Version ?? "linear"}.json"); // git-ignored data/
     File.WriteAllText(reportPath, JsonSerializer.Serialize(new { model = classifier.Model?.Version, report = inboxReport }, ContentClassifier.JsonOptions));
     Console.WriteLine($"Wrote {reportPath}");
     return;

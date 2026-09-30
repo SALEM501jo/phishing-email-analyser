@@ -62,6 +62,12 @@ public sealed partial class HeaderAnalyser(BrandCatalog brands)
         if (headers.IsPresent)
             findings.AddRange(AuthenticationFindings(headers));
 
+        // Authenticated mail from a brand's OWN domain (not a look-alike): evidence for the message, weight 0 here;
+        // the scorer decides what it is worth (ScoringOptions.TrustVerifiedBrandSenders).
+        if (senderDomain is not null && findings.Any(f => f.Code == "auth-pass") && brands.OwnerOf(senderDomain) is { } owner)
+            findings.Add(new(Source, "verified-brand-sender", $"Sent from {owner.Name}'s real domain {senderDomain} (SPF, DKIM and DMARC verified)", 0,
+                $"مرسلة من النطاق الحقيقي لـ {owner.Name} ({senderDomain}) وتم التحقق منها عبر SPF وDKIM وDMARC"));
+
         findings.Sort((a, b) => b.Weight.CompareTo(a.Weight));
         return new ComponentResult(Source, Scoring.NoisyOr(findings), senderDomain is not null, findings);
     }

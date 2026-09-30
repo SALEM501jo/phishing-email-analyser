@@ -64,7 +64,17 @@ public sealed class EmailAnalyser(
             ? Languages.Arabic
             : Languages.English;
 
-        var score = Scoring.NoisyOr([ContentEvidence(content, options), headers.Score, links.Score, attachments.Score, obfuscation.Score, reputation?.Score ?? 0]);
+        var otherEvidence = new[] { headers.Score, links.Score, attachments.Score, obfuscation.Score, reputation?.Score ?? 0 };
+        var contentEvidence = ContentEvidence(content, options);
+        var verifiedBrand = options.TrustVerifiedBrandSenders && otherEvidence.All(s => s <= 0)
+                            && headers.Findings.Any(f => f.Code == "verified-brand-sender");
+        if (verifiedBrand)
+            contentEvidence *= options.VerifiedBrandContentFactor;
+        var textOnly = options.RequireCorroboration && otherEvidence.All(s => s <= 0) && contentEvidence >= options.PhishingThreshold;
+        if (textOnly)
+            contentEvidence = options.PhishingThreshold - 0.01;
+
+        var score = Scoring.NoisyOr([contentEvidence, .. otherEvidence]);
 
         var verdict = score >= options.PhishingThreshold ? Verdicts.Phishing
             : score >= options.SuspiciousThreshold ? Verdicts.Suspicious
@@ -81,7 +91,7 @@ public sealed class EmailAnalyser(
                 reputation is null ? null : reputation with { Score = Math.Round(reputation.Score, 3) },
                 attachments with { Score = Math.Round(attachments.Score, 3) },
                 obfuscation with { Score = Math.Round(obfuscation.Score, 3) }),
-            BuildLimitations(email, content, reputation, language),
+            BuildLimitations(email, content, reputation, language, verifiedBrand, textOnly),
             classifier.Model?.Version,
             language);
     }
@@ -181,7 +191,8 @@ public sealed class EmailAnalyser(
                 yield return l;
     }
 
-    private static List<string> BuildLimitations(EmailSubmission email, ContentResult content, ComponentResult? reputation, string language)
+    private static List<string> BuildLimitations(EmailSubmission email, ContentResult content, ComponentResult? reputation, string language,
+        bool verifiedBrand = false, bool textOnly = false)
     {
         var arabic = language == Languages.Arabic;
         var limitations = new List<string>();
@@ -205,6 +216,14 @@ public sealed class EmailAnalyser(
             limitations.Add(arabic
                 ? "مصنّف النصوص الحالي لم يُدرَّب على اللغة العربية بعد، لذلك خُفّض وزنه إلى النصف؛ فحوص المرسل والروابط تعمل بالكامل."
                 : "The classifier was not trained on this email's language, so its weight was halved; sender and link checks still apply in full.");
+        if (verifiedBrand)
+            limitations.Add(arabic
+                ? "الرسالة مرسلة من النطاق الحقيقي للجهة وتم التحقق منها، لذلك خُفّض وزن تحليل النص."
+                : "Sent from the brand's verified real domain, so the wording analysis was down-weighted.");
+        if (textOnly)
+            limitations.Add(arabic
+                ? "الصياغة وحدها تبدو مريبة، ولا يوجد دليل من المرسل أو الروابط؛ لذلك صُنّفت مريبة وليست تصيّدًا مؤكدًا."
+                : "Only the wording looks suspicious - there is no sender or link evidence - so this is marked suspicious rather than phishing.");
         return limitations;
     }
 

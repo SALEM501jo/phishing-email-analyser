@@ -22,4 +22,21 @@ public sealed class ScoringOptions
 
     public double PhishingThreshold { get; set; } = 0.7;
     public double SuspiciousThreshold { get; set; } = 0.4;
+
+    /// <summary>
+    /// Text alone can warn ("suspicious") but not convict: without any sender, link, attachment, obfuscation or
+    /// reputation evidence, the text's contribution is capped just below the phishing threshold. A fake receipt and
+    /// a real one read almost the same - what differs is who sent it and where its links go.
+    /// </summary>
+    public bool RequireCorroboration { get; set; }
+
+    /// <summary>
+    /// Mail proven to come from a catalogued brand's own domain (SPF+DKIM+DMARC pass, the header rule
+    /// "verified-brand-sender") with no other warning sign gets its text evidence multiplied by
+    /// <see cref="VerifiedBrandContentFactor"/>. Deliberately narrow: 31% of real phishing passes DMARC for the
+    /// attacker's OWN domain, so authentication alone is never trusted - only a brand domain an attacker can't send from.
+    /// </summary>
+    public bool TrustVerifiedBrandSenders { get; set; }
+
+    public double VerifiedBrandContentFactor { get; set; } = 0.2;
 }

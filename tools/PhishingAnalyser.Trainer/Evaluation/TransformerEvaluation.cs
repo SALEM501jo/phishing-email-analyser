@@ -80,6 +80,16 @@ public static class TransformerEvaluation
             linearOptions.PhishingThreshold, linearOptions.SuspiciousThreshold);
         Print($"linear model {linear.Model?.Version} (current), same test emails", linearReport);
 
+        // Fusion policy experiment: "text alone can warn but not convict" (ScoringOptions.RequireCorroboration).
+        // Same emails, same thresholds; only emails with no sender/link evidence and a text score above the
+        // phishing threshold change - from 'phishing' to 'suspicious'.
+        List<ScoredEmail> Corroborated(IEnumerable<ScoredEmail> scored) => scored.Select(s =>
+            s.Headers <= 0 && s.Links <= 0 && s.Content >= phishingThreshold
+                ? s with { Final = Scoring.NoisyOr([phishingThreshold - 0.01, s.Headers, s.Links]) }
+                : s).ToList();
+        var corroborationReport = EndToEndEvaluator.Report(Corroborated(testScored), phishingThreshold, suspiciousThreshold);
+        Print("transformer + RequireCorroboration (text alone can't convict), same test emails", corroborationReport);
+
         // ---------------------------------------------------------------- 3. Arabic + generated (content only)
         // Each group is scored twice: as shipped (Arabic in preview = half weight) and as if Arabic were promoted
         // to full support. The promoted numbers decide whether Arabic leaves preview - on evidence, not by hand.
@@ -155,6 +165,7 @@ public static class TransformerEvaluation
                 note = "Full analyser (transformer + header + link rules), DOM-equivalent input, same modern tune/test emails as the linear model. Thresholds tuned on tune only.",
                 transformer = report,
                 linearBaseline = linearReport,
+                withRequireCorroboration = corroborationReport,
             },
             contentOnlyHeldOut = new
             {
