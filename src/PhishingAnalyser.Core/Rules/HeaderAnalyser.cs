@@ -69,9 +69,10 @@ public sealed partial class HeaderAnalyser(BrandCatalog brands)
         // GitHub/Google notifications carrying attacker-written text with links elsewhere.
         if (senderDomain is not null && findings.Any(f => f.Code == "auth-pass") && brands.OwnerOf(senderDomain) is { } owner
             && !DomainUtils.IsFreeMail(senderDomain) && brands.UserContentPlatform(senderDomain) is null
-            // Unwrap first: Gmail shows links wrapped as google.com/url?q=<real link> (found in the live test - every
-            // brand email lost its trust), as do Outlook safelinks.
-            && (email.Links ?? []).All(l => DomainUtils.GetHost(LinkAnalyser.Unwrap(l.Href)) is { } host && brands.UserContentPlatform(host) is null
+            // Unwrap first: Gmail shows links wrapped as google.com/url?q=<real link>, as do Outlook safelinks. Links that
+            // are never a destination (Gmail's auto-linked Maps addresses, mailto:, tel:) are skipped - both found live.
+            && (email.Links ?? []).Where(l => !LinkAnalyser.IsNeutralLink(l.Href))
+                .All(l => DomainUtils.GetHost(LinkAnalyser.Unwrap(l.Href)) is { } host && brands.UserContentPlatform(host) is null
                                               && owner.Domains.Any(d => DomainUtils.IsSameOrSubdomain(host, d))))
             findings.Add(new(Source, "verified-brand-sender", $"Sent from {owner.Name}'s real domain {senderDomain} (SPF, DKIM and DMARC verified)", 0,
                 $"مرسلة من النطاق الحقيقي لـ {owner.Name} ({senderDomain}) وتم التحقق منها عبر SPF وDKIM وDMARC"));

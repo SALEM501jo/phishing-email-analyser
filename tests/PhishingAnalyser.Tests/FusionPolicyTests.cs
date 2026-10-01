@@ -77,6 +77,26 @@ public class FusionPolicyTests
     }
 
     [Fact]
+    public void Gmail_auto_linked_addresses_and_mailto_links_do_not_break_brand_trust()
+    {
+        // Live test: Gmail turns a footer address into a Google Maps link; LinkedIn/GitHub mail lost its trust because of it.
+        var real = Receipt(rawHeaders: string.Format(Pass, "email.apple.com", "Apple", "no_reply@email.apple.com"), links:
+        [
+            new EmailLink("View receipt", "https://www.apple.com/receipt/123"),
+            new EmailLink("One Apple Park Way, Cupertino, CA 95014", "https://www.google.com/maps/search/One+Apple+Park+Way?entry=gmail&source=g"),
+            new EmailLink("support@apple.com", "mailto:support@apple.com"),
+        ]);
+        Assert.Contains(Analyser(0.99, false, true).Analyse(real).Breakdown.Headers.Findings, f => f.Code == "verified-brand-sender");
+    }
+
+    [Theory]
+    [InlineData("https://maps-google.com.evil.example/maps/login")]      // "maps" in an attacker's host is not Google Maps
+    [InlineData("https://www.google.com.evil.example/maps/search/x")]
+    [InlineData("javascript:alert(1)")]                                    // unparseable/non-web schemes are NOT neutral
+    public void Only_real_google_maps_and_mailto_tel_are_neutral(string href) =>
+        Assert.False(LinkAnalyser.IsNeutralLink(href));
+
+    [Fact]
     public void Free_mail_accounts_get_no_trust_even_though_the_provider_is_a_brand()
     {
         // Found on real data: 154 phishing emails from @gmail.com passed DMARC and matched "Google".

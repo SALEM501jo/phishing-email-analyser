@@ -172,6 +172,23 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         return DomainUtils.RegistrableDomain(shownHost) == DomainUtils.RegistrableDomain(actualHost) ? null : shownHost;
     }
 
+    /// <summary>
+    /// Links that are never a phishing destination, often inserted by the mail client itself: Gmail auto-links street
+    /// addresses to Google Maps (found in the live test - LinkedIn's and GitHub's footer addresses broke their brand
+    /// trust), and mailto:/tel: links have no web page at all. Anything else that can't be parsed is NOT neutral.
+    /// </summary>
+    internal static bool IsNeutralLink(string href)
+    {
+        href = href.Trim();
+        if (href.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) || href.StartsWith("tel:", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!Uri.TryCreate(href, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+            return false;
+        var host = uri.Host.ToLowerInvariant();
+        return host is "www.google.com" or "google.com" or "maps.google.com"
+               && uri.AbsolutePath.StartsWith("/maps", StringComparison.Ordinal);
+    }
+
     internal static string Unwrap(string href)
     {
         href = href.Trim();
