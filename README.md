@@ -16,7 +16,9 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
   - A **hostile-input crash** from illegal international domain names in real phishing.
   - Trust rules **safety-checked on 3,120 real phishing emails**: the first version would have trusted 6.1% of them, now 0.13%.
   - An **SSRF-safe** link expander.
-  - CI with Trivy, SBOM, gitleaks and CodeQL; 211 tests.
+  - An **adversarial review** of the trust rules: 7 holes, each proven by a failing test, then fixed. It also found that
+    production had silently skipped a text-normalisation step that training used. [Details](#adversarial-review-red-team).
+  - CI with Trivy, SBOM, gitleaks, CodeQL and a smoke test of the built image; 269 tests.
 
 ```
 ┌──────────── Gmail tab ─────────────┐          ┌──────────── ASP.NET Core API (Docker) ────────────────┐
@@ -197,6 +199,13 @@ The test set's "legitimate" mail is developer mailing lists. A real inbox is mos
 
 **Two retrained candidate models were rejected on this evaluation**, because their test-set gains did not hold on real mail.
 
+**Live test in Gmail.** Running the extension on real messages found four bugs that no offline evaluation could show:
+- file names in link text were treated as websites: `december-chart-inputs.csv`, and `score.py`, because `.py` is Paraguay's domain;
+- Gmail rewrites links as `google.com/url?q=…`, which hid brand links from the verified-brand check;
+- Gmail turns street addresses into Google Maps links, which broke brand trust for LinkedIn's and GitHub's footers.
+
+After the fixes, LinkedIn and GitHub notifications score *safe*.
+
 **Still open:** about one in five legitimate English notifications and half of purchase emails still get a warning, mostly "suspicious" rather than "phishing". The text model has never seen real receipts, and no public corpus of them exists.
 
 ### Honest limitations
@@ -222,9 +231,9 @@ The extension reads the rendered Gmail DOM instead of calling the Gmail API. Thi
 - **Privacy mode.** *Options → metadata only* sends sender, links and attachment names but **no body text**. HTTPS is
   enforced for any server other than localhost, both on the options page and again in the service worker.
 - **Feedback loop.** 👍/👎 on the banner sends the verdict, reason codes and model version, enough to track
-  false-positive and false-negative rates per model version (`GET /api/v1/feedback/summary`). The email itself is
-  included **only** if you opt in, and becomes labelled retraining data. It's stored in SQLite on a Docker volume,
-  the only writable path in the read-only container.
+  false-positive and false-negative rates per model version (`GET /api/v1/feedback/summary`). It **measures** accuracy
+  in real use; nothing retrains automatically. The email itself is included **only** if you opt in. It's stored in
+  SQLite on a Docker volume, the only writable path in the read-only container.
 - **Tests.** Vitest + jsdom run the real extension scripts in CI against a sanitised Gmail snapshot. They cover
   extraction, the class-rename fallback, **XSS-safe rendering** (a malicious email can't inject HTML into the banner),
   Arabic RTL/bidi, feedback, and the HTTPS guard.
@@ -238,15 +247,45 @@ The extension reads the rendered Gmail DOM instead of calling the Gmail API. Thi
 - Requests are capped at 512 KB, and fields are validated and length-limited.
 - **Per-install API keys.** Each extension install gets its own key (`--new-api-key <name>`). The server stores only SHA-256 hashes and compares against every entry in constant time. One leaked key can be revoked without touching the others, and logs name the client, never the key. This identifies an *installation*, not a person; a multi-user service would add real sign-in (Google OAuth via `chrome.identity` → a short-lived JWT).
 - **Rate limits per client**, or per real client IP without keys. `X-Forwarded-For` is honoured only from the configured proxy address (the Docker bridge gateway in `docker-compose.yml`) with `ForwardLimit = 1`, so clients can't spoof their way into another bucket.
-- The container is read-only, runs as a non-root user with `no-new-privileges`, is limited to 384 MB and ½ CPU, and binds to 127.0.0.1 behind the existing reverse proxy. A `HEALTHCHECK` (the API binary probing its own `/health`; the image has no curl) lets `docker compose up --wait` gate deploys.
+- The container is read-only, runs as a non-root user with `no-new-privileges`, is limited to 640 MB and ½ CPU, and binds to 127.0.0.1 behind the existing reverse proxy. A `HEALTHCHECK` (the API binary probing its own `/health`; the image has no curl) lets `docker compose up --wait` gate deploys.
 - **Metrics** (OpenTelemetry → Prometheus) on a separate internal port 9464 that is never proxied: verdict and language counts, analysis latency, feedback, rejected keys, plus ASP.NET Core, rate-limiter and runtime metrics. Counts only, no content. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also push to a collector.
 - **Throughput.** ML.NET's `PredictionEngine` isn't thread-safe, so requests borrow engines from an object pool (the same approach as `PredictionEnginePool`) instead of queueing behind a lock. The ONNX transformer session is thread-safe as is.
+
+### Adversarial review (red team)
+The real-mailbox fixes added rules that *lower* suspicion: trusted senders, tracked links and file-name exceptions.
+Every such rule is something an attacker can aim for. So the rules were attacked on purpose:
+- four attacker roles each hunted for holes: trust bypass, link evasion, crashing the analyser, and fusion logic;
+- **a hole counted only if a test that fails on the current code reproduced it.**
+
+Seven were confirmed. Each was fixed, and its test now passes (`tests/PhishingAnalyser.Tests/RedTeam/`):
+
+| Hole | Effect | Fix |
+|---|---|---|
+| `google.com/url?q=file://` + a bidi mark (plain ASCII) | .NET 8's `Uri.TryCreate` **throws** instead of returning false: no verdict, HTTP 500 | A never-throwing `TryCreateUri` wherever a URL or domain is parsed |
+| The same characters in a Reply-To domain | The Public Suffix parser crashed the same way | Parser calls are guarded |
+| U+FFFE or a lone surrogate in the body | Unicode normalisation threw | Invalid code points are removed first (valid text is unchanged) |
+| `pwd` followed by 60,000 spaces, plus `.zip` files | Quadratic regex backtracking: **10 s of CPU per attachment** | Atomic groups, run once per email: 5 ms |
+| An Outlook safelink wrapping a `google.com/url` redirect | Only one layer was unwrapped, so an attacker link passed Google's brand check | Every layer is unwrapped; deeper than 5 fails closed |
+| `paypa1.com` link text through the attacker's own SendGrid | Downgraded to a weak "tracked link" | Look-alike brands stay a full mismatch |
+| `mbank.pl` link text pointing to another site | No finding at all, because of the `score.py` file-name exception | Exception narrowed to py/md/sh/rs, never for brands, and reported weakly instead of dropped |
+
+**The bigger find came while checking those fixes the way production runs.**
+- The API ran in .NET's *invariant globalization* mode, which silently skips Unicode NFKC normalisation. Training had applied it.
+- So in production, `𝐕𝐞𝐫𝐢𝐟𝐲 𝐲𝐨𝐮𝐫 𝐩𝐚𝐬𝐬𝐰𝐨𝐫𝐝` (math-bold letters), full-width text and Arabic presentation forms reached the model unfolded.
+- Every offline number had been measured *with* the folding.
+
+The API now runs with ICU and refuses to start without it. CI boots the built image and checks that plain and
+math-bold versions of a phishing email get the same score: 0.923 and 0.923.
+
+One of the new timing tests then failed on CI's slower runner, which found a second quadratic regex: 7,500 unclosed
+`<script>` tags took about 2 s. It was replaced by code that produces **identical output**, checked against the original
+regex on 20,000 random inputs, so training and serving still see the same text.
 
 ## Running locally
 
 ```bash
 python scripts/models.py fetch                                  # model binaries from the GitHub Release, SHA-256 verified
-dotnet test                                                     # 175 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, end-to-end
+dotnet test                                                     # 269 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, red team, end-to-end
 dotnet run --project src/PhishingAnalyser.Api --launch-profile http   # http://localhost:5080/swagger
 ```
 
@@ -266,7 +305,7 @@ python scripts/models.py publish                                 # release "mode
 `.github/workflows/ci-cd.yml` runs these jobs:
 1. **test**: fetch the model, restore, fail on known-vulnerable NuGet packages, build and test on every push and PR.
 2. **extension**: syntax-check the JS, run the Vitest tests, `npm audit`, validate the MV3 manifest, and publish the packaged `.zip` as a build artifact.
-3. **image-scan**: build the image and scan it with **Trivy** (fails on fixable HIGH/CRITICAL vulnerabilities, secrets or misconfigurations). Also generates an **SPDX SBOM**. Both are kept as build artifacts.
+3. **image-scan**: build the image, **boot it** (a smoke test checks `/health`, the loaded model, and that look-alike Unicode text scores like plain text), then scan it with **Trivy** (fails on fixable HIGH/CRITICAL vulnerabilities, secrets or misconfigurations). Also generates an **SPDX SBOM**. Both are kept as build artifacts.
 4. **image**: on `main` or tags, push to `ghcr.io/<owner>/phishing-analyser` (tags `latest`, `sha-xxxx`, semver) with SBOM and provenance attestations attached.
 5. **deploy**: SSH to the VPS and run `docker compose pull && up -d --wait`, which fails unless the container becomes healthy. This job is opt-in, so add the following first:
    - repository variable `DEPLOY_ENABLED=true`
