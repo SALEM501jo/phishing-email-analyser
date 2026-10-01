@@ -87,6 +87,27 @@ jobs:
           tags: phishing-analyser:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # The image itself must start, load the model and fold look-alike text (NFKC) exactly as training did - in
+      # invariant-globalization mode .NET silently skipped that, and nothing short of running the image would show it.
+      - name: Smoke test - the image serves and normalises text like training
+        run: |
+          docker run -d --name smoke -p 127.0.0.1:8080:8080 phishing-analyser:scan
+          for i in $(seq 1 45); do curl -fsS http://127.0.0.1:8080/health > health.json 2>/dev/null && break; sleep 2; done
+          grep -q '"contentModelLoaded":true' health.json || { docker logs smoke; exit 1; }
+          python3 - <<'EOF'
+          import json, urllib.request
+          def bold(t):
+              return ''.join(chr(0x1D400 + ord(c) - 65) if 'A' <= c <= 'Z' else chr(0x1D41A + ord(c) - 97) if 'a' <= c <= 'z' else c for c in t)
+          def content(f):
+              email = {"subject": f("Verify your account"), "body": f("Your account will be suspended. Verify your password now."),
+                       "senderEmail": "alerts@example-mail.net"}
+              req = urllib.request.Request("http://127.0.0.1:8080/api/v1/analyse", json.dumps(email).encode(), {"Content-Type": "application/json"})
+              return json.load(urllib.request.urlopen(req, timeout=30))["breakdown"]["content"]["probability"]
+          plain, folded = content(lambda t: t), content(bold)
+          print(f"phishing probability: plain {plain}, math-bold {folded}")
+          assert plain > 0.5, "the model did not flag an obvious phishing text"
+          assert folded == plain, "math-bold text was not folded to plain letters (invariant globalization?)"
+          EOF
       - name: Trivy - fail on fixable HIGH/CRITICAL vulnerabilities, secrets or misconfigurations
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
