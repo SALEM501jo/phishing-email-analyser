@@ -179,6 +179,16 @@ app.MapPost("/api/v1/analyse", async Task<Results<Ok<AnalysisResult>, Validation
         // Deliberately no email content in logs - only the outcome and which client asked.
         logger.LogInformation("Analysed email: client={Client} verdict={Verdict} score={Score} links={Links} rawHeaders={HasHeaders}",
             http.Items[ApiClients.ItemKey] ?? "-", result.Verdict, result.Score, request.Links?.Count ?? 0, !string.IsNullOrEmpty(request.RawHeaders));
+        if (app.Environment.IsDevelopment())
+        {
+            // Local debugging only: registrable DOMAINS and rule codes (never text) to see why a trust rule did or didn't apply.
+            var submission = request.ToSubmission();
+            var linkDomains = (submission.Links ?? []).Select(l => PhishingAnalyser.Core.Rules.DomainUtils.GetHost(l.Href))
+                .OfType<string>().Select(PhishingAnalyser.Core.Rules.DomainUtils.RegistrableDomain).Distinct();
+            var codes = result.Breakdown.Headers.Findings.Concat(result.Breakdown.Links.Findings).Select(f => f.Code).Distinct();
+            logger.LogInformation("[dev] sender={Sender} linkDomains={LinkDomains} codes={Codes}",
+                PhishingAnalyser.Core.Rules.DomainUtils.GetEmailDomain(submission.SenderEmail), string.Join(",", linkDomains), string.Join(",", codes));
+        }
 
         return TypedResults.Ok(result);
     })

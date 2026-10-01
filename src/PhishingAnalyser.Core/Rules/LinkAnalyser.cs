@@ -34,6 +34,9 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
     // can't be seen - on the owner's real mailbox these caused most "text shows X, goes to Y" false alarms.
     // Phishers use the same services, so a tracked link is still reported, just weakly - unless its text claims a
     // brand the sender isn't (then it stays a full mismatch).
+    private static readonly HashSet<string> CodeFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+        { "py", "md", "sh", "rs", "ps", "pl", "so", "ml", "sc", "cs", "ts" };
+
     private static readonly string[] ClickTrackers =
     [
         "mandrillapp.com", "sendgrid.net", "awstrack.me", "list-manage.com", "mcsv.net", "mailchi.mp", "hubspotlinks.com",
@@ -161,6 +164,10 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         var shownHost = DomainUtils.GetHost(text);
         if (shownHost is null || !DomainUtils.HasKnownTld(shownHost))
             return null; // "report.csv", "chart-inputs.pdf": file names, not websites
+        // Some code-file extensions are also country TLDs (.py Paraguay, .md Moldova, .sh, .rs...). A bare "score.py" -
+        // no scheme, no www., no path - is a file name; "www.score.py" or "http://score.py/x" still counts as a site.
+        if (CodeFileExtensions.Contains(DomainUtils.Tld(shownHost)) && !text.Contains('/') && !text.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+            return null;
 
         return DomainUtils.RegistrableDomain(shownHost) == DomainUtils.RegistrableDomain(actualHost) ? null : shownHost;
     }

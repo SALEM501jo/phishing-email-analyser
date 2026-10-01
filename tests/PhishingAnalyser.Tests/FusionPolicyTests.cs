@@ -64,6 +64,19 @@ public class FusionPolicyTests
     }
 
     [Fact]
+    public void Gmail_wrapped_links_are_unwrapped_before_the_brand_check()
+    {
+        // In real Gmail every link is shown as https://www.google.com/url?q=<real link>.
+        var wrapped = Receipt(rawHeaders: string.Format(Pass, "email.apple.com", "Apple", "no_reply@email.apple.com"),
+            links: [new EmailLink("View receipt", "https://www.google.com/url?q=https://www.apple.com/receipt/123&source=gmail")]);
+        Assert.Contains(Analyser(0.99, false, true).Analyse(wrapped).Breakdown.Headers.Findings, f => f.Code == "verified-brand-sender");
+
+        var wrappedEvil = Receipt(rawHeaders: string.Format(Pass, "email.apple.com", "Apple", "no_reply@email.apple.com"),
+            links: [new EmailLink("View receipt", "https://www.google.com/url?q=https://apple-billing-review.com/login&source=gmail")]);
+        Assert.DoesNotContain(Analyser(0.99, false, true).Analyse(wrappedEvil).Breakdown.Headers.Findings, f => f.Code == "verified-brand-sender");
+    }
+
+    [Fact]
     public void Free_mail_accounts_get_no_trust_even_though_the_provider_is_a_brand()
     {
         // Found on real data: 154 phishing emails from @gmail.com passed DMARC and matched "Google".
@@ -156,6 +169,8 @@ public class FileNameLinkTextTests
     [InlineData("december-chart-inputs.csv", "https://tt.na.teamtailor.com/files/123")]
     [InlineData("freight_rate_report.pdf", "https://drive.example-cdn.com/f/9")]
     [InlineData("photo.png", "https://cdn.example.org/p.png")]
+    [InlineData("score.py", "https://tt.na.teamtailor.com/files/9")]     // .py is Paraguay's TLD - still a file name here
+    [InlineData("README.md", "https://github.com/x/y/blob/main/README.md")]
     public void File_names_are_not_websites(string text, string href) =>
         Assert.DoesNotContain(Links.Analyse([new EmailLink(text, href)]).Findings, f => f.Code == "text-href-mismatch");
 
