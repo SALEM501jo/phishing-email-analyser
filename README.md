@@ -4,6 +4,20 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
 
 [![CI/CD](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml)
 
+## At a glance
+- **What it is.** An end-to-end ML security product: a Chrome (MV3) extension, an ASP.NET Core API, and a fine-tuned multilingual transformer. It flags phishing in the Gmail message you're reading, in English or Arabic, and explains why.
+- **ML pipeline.**
+  - Fine-tuned `distilbert-base-multilingual-cased` on about 70,000 emails: public corpora, 10,800 machine-translated Arabic emails, and about 11,000 LLM-generated paired emails from Kaggle GPUs.
+  - Exported to **int8 ONNX** and served **in C#** through ONNX Runtime. Python is used offline only.
+- **Measured.** On held-out 2022–2026 test mail, phishing recall rose **from 63% to 80% at a 0.12% false-positive rate**, compared with the bag-of-words baseline.
+- **Then tested on a real mailbox, which the test set had hidden.** Legitimate notification mail was warned 21–98% of the time. Diagnostics traced this to the text model. Fixes were measured on real phishing *and* real mail before shipping, cutting social-mail warnings **from 21% to 6.6%**. [Details below](#real-mailbox-evaluation-the-number-the-test-set-hid).
+- **Engineering that caught real bugs.**
+  - Python-vs-.NET **tokenizer parity tests**: Microsoft's tokenizer dropped `$ = |` and emoji.
+  - A **hostile-input crash** from illegal international domain names in real phishing.
+  - Trust rules **safety-checked on 3,120 real phishing emails**: the first version would have trusted 6.1% of them, now 0.13%.
+  - An **SSRF-safe** link expander.
+  - CI with Trivy, SBOM, gitleaks and CodeQL; 211 tests.
+
 ```
 ┌──────────── Gmail tab ─────────────┐          ┌──────────── ASP.NET Core API (Docker) ────────────────┐
 │ content script                     │          │  POST /api/v1/analyse                                 │
