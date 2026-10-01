@@ -56,7 +56,16 @@ public static class DomainUtils
         if (uri.Scheme is not ("http" or "https"))
             return null;
 
-        return uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+        try
+        {
+            return uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+        }
+        catch (UriFormatException)
+        {
+            // Characters that are illegal in international domain names (found in real phishing). Treated as
+            // unparseable - which fails closed everywhere (no trust, no brand match) - instead of crashing the verdict.
+            return null;
+        }
     }
 
     public static string? GetEmailDomain(string? email)

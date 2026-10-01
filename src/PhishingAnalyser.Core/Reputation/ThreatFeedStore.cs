@@ -85,7 +85,14 @@ public sealed class ThreatFeedStore
         if (!Uri.TryCreate(url.Contains("://") ? url : "http://" + url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             return null;
         var path = uri.PathAndQuery.TrimEnd('/');
-        return uri.IdnHost.ToLowerInvariant() + (uri.IsDefaultPort ? "" : ":" + uri.Port) + path;
+        try
+        {
+            return uri.IdnHost.ToLowerInvariant() + (uri.IsDefaultPort ? "" : ":" + uri.Port) + path;
+        }
+        catch (UriFormatException)
+        {
+            return null; // host with characters illegal in international domain names: unmatchable, never a crash
+        }
     }
 
     private static string? HostOf(string normalised)

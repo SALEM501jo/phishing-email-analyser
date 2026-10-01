@@ -47,9 +47,10 @@ public sealed class ShortLinkExpander(HttpClient http, TimeSpan? timeout = null)
             return hit.Destination;
 
         string? destination = null;
-        var current = new Uri(shortUrl.Contains("://") ? shortUrl : "https://" + shortUrl);
         try
         {
+            // Inside the try: a malformed (attacker-written) URL must leave the link unexpanded, not fail the analysis.
+            var current = new Uri(shortUrl.Contains("://") ? shortUrl : "https://" + shortUrl);
             for (var hop = 0; hop < MaxHops; hop++)
             {
                 if (current.Scheme is not ("http" or "https") || current.Port is not (80 or 443) || !LinkAnalyser.IsShortener(current.IdnHost))
