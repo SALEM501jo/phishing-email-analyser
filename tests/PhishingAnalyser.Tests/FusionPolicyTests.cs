@@ -146,3 +146,30 @@ public class TrackedLinkTests
     public void Only_the_platform_itself_may_route_through_its_redirector() =>
         Assert.Contains("text-href-mismatch", Codes("alerts@evil-notify.com", "youtu.be/abc123", "https://twitter.com/i/redirect?id=1"));
 }
+
+/// <summary>Found in the live Gmail test: a file name in link text was reported as a deceptive link.</summary>
+public class FileNameLinkTextTests
+{
+    private static readonly LinkAnalyser Links = new(BrandCatalog.Default);
+
+    [Theory]
+    [InlineData("december-chart-inputs.csv", "https://tt.na.teamtailor.com/files/123")]
+    [InlineData("freight_rate_report.pdf", "https://drive.example-cdn.com/f/9")]
+    [InlineData("photo.png", "https://cdn.example.org/p.png")]
+    public void File_names_are_not_websites(string text, string href) =>
+        Assert.DoesNotContain(Links.Analyse([new EmailLink(text, href)]).Findings, f => f.Code == "text-href-mismatch");
+
+    [Theory]
+    [InlineData("www.paypal.com", "https://evil.example.org/login")]
+    [InlineData("invoice.zip", "https://evil.example.org/x")]   // .zip is a real TLD - and a known lure
+    public void Real_domains_in_link_text_still_count(string text, string href) =>
+        Assert.Contains(Links.Analyse([new EmailLink(text, href)]).Findings, f => f.Code == "text-href-mismatch");
+
+    [Theory]
+    [InlineData("paypal.com", true)]
+    [InlineData("login.example.co.uk", true)]
+    [InlineData("december-chart-inputs.csv", false)]
+    [InlineData("report.pdf", false)]
+    public void Known_tlds_come_from_the_public_suffix_list(string host, bool expected) =>
+        Assert.Equal(expected, DomainUtils.HasKnownTld(host));
+}

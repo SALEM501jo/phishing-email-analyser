@@ -159,8 +159,8 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
             return null;
 
         var shownHost = DomainUtils.GetHost(text);
-        if (shownHost is null)
-            return null;
+        if (shownHost is null || !DomainUtils.HasKnownTld(shownHost))
+            return null; // "report.csv", "chart-inputs.pdf": file names, not websites
 
         return DomainUtils.RegistrableDomain(shownHost) == DomainUtils.RegistrableDomain(actualHost) ? null : shownHost;
     }

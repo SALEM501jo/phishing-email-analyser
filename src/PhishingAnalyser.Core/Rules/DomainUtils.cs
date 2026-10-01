@@ -86,6 +86,27 @@ public static class DomainUtils
     public static bool IsIpAddress(string host) =>
         IPAddress.TryParse(host.Trim('[', ']'), out _);
 
+    /// <summary>
+    /// True when the host ends in a real top-level domain from the Public Suffix List. "december-chart-inputs.csv"
+    /// looks like a domain but isn't - found live, where a file name in link text was reported as a deceptive link.
+    /// (".zip" and ".mov" ARE real TLDs, so "invoice.zip" still counts - correctly, it's a known lure.)
+    /// </summary>
+    public static bool HasKnownTld(string host)
+    {
+        if (IsIpAddress(host))
+            return false;
+        if (Psl.Value is not { } parser)
+            return true; // without the list, keep the old behaviour rather than silently disabling the rule
+        try
+        {
+            return parser.TryParse(host, out var info) && info?.TopLevelDomainRule is { } rule && rule.Name != "*";
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     /// <summary>"login.secure.paypal.co.uk" -> "paypal.co.uk"; "paypal-login.pages.dev" -> itself (pages.dev is a hosting platform).</summary>
     public static string RegistrableDomain(string host)
     {
