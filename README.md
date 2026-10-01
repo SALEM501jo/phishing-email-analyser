@@ -162,27 +162,28 @@ The test set's "legitimate" mail is developer mailing lists. A real inbox is mos
 - it was exported with Google Takeout, stays on the machine and is git-ignored;
 - the report holds counts and rule codes only.
 
-Across the categories Gmail considers legitimate, the analyser warned on far more real mail than the test set suggested (4,680 messages):
-
-| Gmail category | Warned (before) | Warned (verified-brand trust on) |
+| Gmail category (legitimate) | Warned at first | Warned now |
 |---|---|---|
-| Social (EN, 2,053) | 21.3% | **10.6%** |
-| Updates (EN, 1,984) | 32.3% | 28.0% |
-| Purchases (EN, 50) | 98% | 94% |
-| Updates (AR, 242) | 81.8% | **18.2%** |
+| Social (EN, 2,053) | 21.3% | **6.6%** |
+| Updates (EN, 1,984) | 32.3% | **18.8%** |
+| Purchases (EN, 50) | 98% | **52%** |
+| Primary (EN, 173) | 23.7% | **19.7%** |
+| Updates (AR, 242) | 81.8% | **10.3%** |
+| Social (AR, 43) | 67.4% | **11.6%** |
 
-What the diagnostics showed:
-- **The text model is the cause.** Nearly all warnings came from wording alone (594 of 640 in English Updates), not from rules. The model has never seen real receipts and notifications.
-- **Verified-brand trust** (now on by default) damps the wording score when three things hold:
-  - SPF, DKIM and DMARC all pass;
-  - the sender is a catalogued brand's own domain;
-  - every link stays on that brand's domains.
-- **Checked against 3,120 real phishing emails with genuine headers** before shipping:
-  - the first version trusted 6.1% of them, mostly free `gmail.com`/`icloud.com` accounts and real GitHub/Google notifications carrying attacker links;
-  - after closing those holes, only **0.13%** (4 emails) qualify.
-- **Two retrained candidate models were rejected on this evaluation.** Their test-set gains did not hold on real mail.
+"Now" is the shipped configuration. The established-sender column is an offline estimate: production additionally checks link-domain ages and blocklists. Every fix was measured on both sides before shipping.
 
-This is the project's most important open problem. Fixing it needs real legitimate transactional mail to train on, which no public corpus provides.
+| Fix | What the real mailbox showed | Safety check before enabling |
+|---|---|---|
+| **Diagnostics** | Almost every warning came from wording alone (594 of 640 in Updates), not from rules | – |
+| **Verified-brand trust**: SPF/DKIM/DMARC pass, the sender is a catalogued brand's own domain, and links stay on it | Real brand mail was being called phishing | On 3,120 real phishing emails with genuine headers, the first version trusted **6.1%** (free `gmail.com`/`icloud.com` accounts and genuine GitHub/Google notifications carrying attacker links). After closing those holes: **0.13%** |
+| **Click-tracking and platform redirects**: X/Facebook redirectors and SendGrid/Mandrill trackers no longer count as "text shows X, goes to Y" | 81 false link warnings on social mail, found from domain pairs only | A brand name routed through a tracker by someone else, or a non-platform sender using a platform's redirector, still fires |
+| **Established sender**: authenticated, independent domain over a year old (RDAP), no warning sign, so the wording counts **half** | Receipts and notifications from ordinary shops | Measured at each domain's age **on the day the phishing email was sent**. Wording × 0.5 lets **3 of 3,120** warned phishing emails through; × 0.2 would have let **263** through, because many phishers send from old or compromised authenticated domains |
+| **Hostile-input crash**: hosts with characters illegal in international domain names made .NET throw | Found while scoring real phishing; an attacker could have made an email un-analysable | Every URL path now fails closed; regression tests cover it |
+
+**Two retrained candidate models were rejected on this evaluation**, because their test-set gains did not hold on real mail.
+
+**Still open:** about one in five legitimate English notifications and half of purchase emails still get a warning, mostly "suspicious" rather than "phishing". The text model has never seen real receipts, and no public corpus of them exists.
 
 ### Honest limitations
 - **No modern legitimate *transactional or marketing* mail:** there are no newsletters, receipts or password resets from real companies, because no public corpus exists. A genuine "Reset your password" email still scores 75% phishing on text alone. The fix is labelled mail from real inboxes.

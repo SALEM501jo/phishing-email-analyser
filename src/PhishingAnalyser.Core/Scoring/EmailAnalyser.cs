@@ -70,6 +70,13 @@ public sealed class EmailAnalyser(
                             && headers.Findings.Any(f => f.Code == "verified-brand-sender");
         if (verifiedBrand)
             contentEvidence *= options.VerifiedBrandContentFactor;
+        var allFindings = headers.Findings.Concat(links.Findings).Concat(attachments.Findings).Concat(obfuscation.Findings)
+            .Concat(reputation?.Findings ?? []).ToList();
+        var establishedSender = !verifiedBrand && options.TrustEstablishedSenders
+                                && allFindings.Any(f => f.Code == "auth-pass") && allFindings.Any(f => f.Code == "established-sender")
+                                && allFindings.All(f => f.Weight <= 0.1);
+        if (establishedSender)
+            contentEvidence *= options.EstablishedSenderContentFactor;
         var textOnly = options.RequireCorroboration && otherEvidence.All(s => s <= 0) && contentEvidence >= options.PhishingThreshold;
         if (textOnly)
             contentEvidence = options.PhishingThreshold - 0.01;
@@ -91,7 +98,7 @@ public sealed class EmailAnalyser(
                 reputation is null ? null : reputation with { Score = Math.Round(reputation.Score, 3) },
                 attachments with { Score = Math.Round(attachments.Score, 3) },
                 obfuscation with { Score = Math.Round(obfuscation.Score, 3) }),
-            BuildLimitations(email, content, reputation, language, verifiedBrand, textOnly),
+            BuildLimitations(email, content, reputation, language, verifiedBrand, textOnly, establishedSender),
             classifier.Model?.Version,
             language);
     }
@@ -192,7 +199,7 @@ public sealed class EmailAnalyser(
     }
 
     private static List<string> BuildLimitations(EmailSubmission email, ContentResult content, ComponentResult? reputation, string language,
-        bool verifiedBrand = false, bool textOnly = false)
+        bool verifiedBrand = false, bool textOnly = false, bool establishedSender = false)
     {
         var arabic = language == Languages.Arabic;
         var limitations = new List<string>();
@@ -220,6 +227,10 @@ public sealed class EmailAnalyser(
             limitations.Add(arabic
                 ? "الرسالة مرسلة من النطاق الحقيقي للجهة وتم التحقق منها، لذلك خُفّض وزن تحليل النص."
                 : "Sent from the brand's verified real domain, so the wording analysis was down-weighted.");
+        if (establishedSender)
+            limitations.Add(arabic
+                ? "المرسل موثَّق ونطاقه مسجّل منذ أكثر من سنة، لذلك خُفّض وزن تحليل النص إلى النصف."
+                : "The sender is authenticated and its domain has existed for over a year, so the wording analysis counts half.");
         if (textOnly)
             limitations.Add(arabic
                 ? "الصياغة وحدها تبدو مريبة، ولا يوجد دليل من المرسل أو الروابط؛ لذلك صُنّفت مريبة وليست تصيّدًا مؤكدًا."

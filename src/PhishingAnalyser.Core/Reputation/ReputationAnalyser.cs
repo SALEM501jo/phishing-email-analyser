@@ -53,6 +53,9 @@ public sealed class ReputationAnalyser(
         var ageTask = options.DomainAge && domainAge is not null
             ? CheckAgesAsync(email, urls, timeout.Token)
             : Task.FromResult<List<DomainAge>>([]);
+        // Free-mail, brand and hosting-platform senders are excluded inside CheckAgesAsync, so only an independently
+        // registered sender domain can ever be "established".
+        var senderDomain = DomainUtils.GetEmailDomain(email.SenderEmail) is { } sender ? DomainUtils.RegistrableDomain(sender) : null;
         var safeBrowsingTask = safeBrowsing is not null && urls.Count > 0
             ? safeBrowsing.CheckAsync(urls, timeout.Token)
             : Task.FromResult<IReadOnlyList<(string Url, string Threat)>>([]);
@@ -73,6 +76,9 @@ public sealed class ReputationAnalyser(
             else if (days < 180)
                 findings.Add(new(Source, "young-domain", $"{age.Domain} was registered recently ({Days(days)} ago)", 0.2,
                     $"النطاق {age.Domain} سُجّل مؤخرًا (قبل {DaysArabic(days)})", age.Domain));
+            else if (days >= options.EstablishedSenderDays && senderDomain == age.Domain)
+                findings.Add(new(Source, "established-sender", $"The sender's domain {age.Domain} has been registered for {Days(days)}", 0,
+                    $"نطاق المرسل {age.Domain} مسجّل منذ {DaysArabic(days)}", age.Domain));
         }
 
         findings.Sort((a, b) => b.Weight.CompareTo(a.Weight));

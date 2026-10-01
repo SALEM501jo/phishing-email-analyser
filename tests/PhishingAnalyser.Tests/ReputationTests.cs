@@ -63,12 +63,24 @@ public class ReputationTests
     }
 
     [Fact]
-    public async Task Established_domain_adds_nothing()
+    public async Task Established_sender_domain_adds_no_risk_only_a_zero_weight_fact()
     {
         var handler = new FakeHandler(_ => FakeHandler.Json(FakeHandler.Rdap(DateTimeOffset.UtcNow.AddYears(-12))));
         var result = await Analyser(handler).AnalyseAsync(Email("news@some-old-company.com"), default);
-        Assert.Empty(result.Findings);
+        var finding = Assert.Single(result.Findings);
+        Assert.Equal("established-sender", finding.Code);
+        Assert.Equal(0, finding.Weight);
+        Assert.Equal(0, result.Score);
         Assert.True(result.Evaluated);
+    }
+
+    [Fact]
+    public async Task An_old_LINK_domain_does_not_make_the_SENDER_established()
+    {
+        var handler = new FakeHandler(r => FakeHandler.Json(FakeHandler.Rdap(r.RequestUri!.AbsolutePath.EndsWith("old-site.com")
+            ? DateTimeOffset.UtcNow.AddYears(-10) : DateTimeOffset.UtcNow.AddDays(-200))));
+        var result = await Analyser(handler).AnalyseAsync(Email("billing@fresh-sender-domain.com", "https://old-site.com/x"), default);
+        Assert.DoesNotContain(result.Findings, f => f.Code == "established-sender");
     }
 
     [Fact]
@@ -112,5 +124,58 @@ public class ReputationTests
             host => BrandCatalog.Default.OwnerOf(host) is null);
         Assert.NotNull(feeds.Match("https://github.com/attacker/repo/raw/main/payload.exe"));
         Assert.Null(feeds.Match("https://github.com/dotnet/runtime"));
+    }
+}
+
+/// <summary>Fusion with the established-sender fact: damps wording only for authenticated, warning-free mail.</summary>
+[Collection(TimingSensitive.Name)]
+public class EstablishedSenderFusionTests
+{
+    private const string AuthPass = "Authentication-Results: mx.google.com; dkim=pass; spf=pass; dmarc=pass\nFrom: Northwind <receipts@northwind-shop.com>\n";
+
+    private static async Task<AnalysisResult> Analyse(bool trust, int domainAgeDays, string? rawHeaders = AuthPass, params EmailLink[] links)
+    {
+        var handler = new FakeHandler(_ => FakeHandler.Json(FakeHandler.Rdap(DateTimeOffset.UtcNow.AddDays(-domainAgeDays))));
+        var reputation = new ReputationAnalyser(BrandCatalog.Default, new ReputationOptions(), new ThreatFeedStore(),
+            new DomainAgeChecker(new HttpClient(handler)), safeBrowsing: null);
+        var analyser = new EmailAnalyser(new FixedText(0.99), new HeaderAnalyser(BrandCatalog.Default), new LinkAnalyser(BrandCatalog.Default),
+            new ScoringOptions { PhishingThreshold = 0.5, SuspiciousThreshold = 0.25, TrustEstablishedSenders = trust }, reputation);
+        return await analyser.AnalyseAsync(new EmailSubmission
+        {
+            Subject = "Your order receipt", Body = "Thanks for your order #4821. Total 23.40 JOD, paid by card ending 4242.",
+            SenderName = "Northwind", SenderEmail = "receipts@northwind-shop.com", RawHeaders = rawHeaders, Links = links,
+        });
+    }
+
+    [Fact]
+    public async Task Off_by_default_wording_alone_convicts() =>
+        Assert.Equal(Verdicts.Phishing, (await Analyse(trust: false, domainAgeDays: 4000)).Verdict);
+
+    [Fact]
+    public async Task Authenticated_old_domain_halves_the_wording()
+    {
+        var result = await Analyse(trust: true, domainAgeDays: 4000);
+        Assert.Equal(Verdicts.Suspicious, result.Verdict);   // 0.99 x 0.9 x 0.5 = 0.45: still a warning, no longer "phishing"
+        Assert.Contains(result.Limitations, l => l.Contains("domain has existed for over a year"));
+    }
+
+    [Fact]
+    public async Task Young_domain_gets_no_benefit() =>
+        Assert.Equal(Verdicts.Phishing, (await Analyse(trust: true, domainAgeDays: 200)).Verdict);
+
+    [Fact]
+    public async Task Unauthenticated_mail_gets_no_benefit() =>
+        Assert.Equal(Verdicts.Phishing, (await Analyse(trust: true, domainAgeDays: 4000, rawHeaders: null)).Verdict);
+
+    [Fact]
+    public async Task Any_real_warning_sign_cancels_the_benefit() =>
+        Assert.Equal(Verdicts.Phishing, (await Analyse(trust: true, domainAgeDays: 4000, AuthPass,
+            new EmailLink("www.paypal.com", "http://185.22.4.9/login"))).Verdict);
+
+    private sealed class FixedText(double p) : PhishingAnalyser.Core.Content.IContentClassifier
+    {
+        public bool IsLoaded => true;
+        public PhishingAnalyser.Core.Content.ModelInfo? Model => null;
+        public ContentResult Classify(string? subject, string? body) => new(true, p, 0, []);
     }
 }

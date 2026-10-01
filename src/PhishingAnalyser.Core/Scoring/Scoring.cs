@@ -39,4 +39,15 @@ public sealed class ScoringOptions
     public bool TrustVerifiedBrandSenders { get; set; }
 
     public double VerifiedBrandContentFactor { get; set; } = 0.2;
+
+    /// <summary>
+    /// Authenticated mail (SPF+DKIM+DMARC pass) from an independently registered domain at least a year old
+    /// (reputation finding "established-sender"), with no warning sign above weight 0.1 anywhere, gets its text evidence
+    /// multiplied by <see cref="EstablishedSenderContentFactor"/>. Measured before enabling: on 3,120 real phishing emails
+    /// x0.5 turned 3 warned emails safe (x0.2 turned 263 - many phishers send from old or compromised authenticated
+    /// domains), while on a real mailbox it cut false warnings on purchases from 94% to 52% and updates from 28% to 19%.
+    /// </summary>
+    public bool TrustEstablishedSenders { get; set; }
+
+    public double EstablishedSenderContentFactor { get; set; } = 0.5;
 }

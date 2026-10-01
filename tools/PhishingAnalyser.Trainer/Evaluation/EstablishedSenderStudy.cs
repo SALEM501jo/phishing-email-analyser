@@ -42,7 +42,9 @@ public static class EstablishedSenderStudy
         // ---- real phishing (public corpus, genuine headers)
         var phishRows = phishing.Where(e => !string.IsNullOrEmpty(e.Submission?.RawHeaders)).Select(e => e.Submission!).ToList();
         Console.WriteLine($"Scoring {phishRows.Count} real phishing emails with genuine headers ...");
-        var phishScored = phishRows.Select(s => Score(analyser, s)).ToList();
+        var failures = 0;
+        var phishScored = phishRows.Select(s => TryScore(analyser, s, ref failures)).OfType<Scored>().ToList();
+        if (failures > 0) Console.WriteLine($"  {failures} emails could not be analysed (reported, not hidden)");
         await LookUpAsync(rdap, cache, phishScored, cachePath);
         Console.WriteLine("\nReal phishing (should stay warned):");
         Report("all phishing with headers", phishScored, scoring, positive: true);
@@ -66,7 +68,8 @@ public static class EstablishedSenderStudy
                     continue;
                 EmailSubmission submission;
                 try { submission = InboxEvaluation.ToSubmission(message); } catch (Exception) { continue; }
-                var scored = Score(analyser, submission);
+                if (TryScore(analyser, submission, ref failures) is not { } scored)
+                    continue;
                 var key = $"{category} [{scored.Language}]";
                 (byCategory.TryGetValue(key, out var list) ? list : byCategory[key] = []).Add(scored);
             }
@@ -82,6 +85,12 @@ public static class EstablishedSenderStudy
         bool AuthPass, bool OnlyWeakFindings, string? SenderDomain, DateTimeOffset? Sent)
     {
         public DateTimeOffset? Registered { get; set; }
+    }
+
+    private static Scored? TryScore(EmailAnalyser analyser, EmailSubmission email, ref int failures)
+    {
+        try { return Score(analyser, email); }
+        catch (Exception e) { failures++; Console.WriteLine($"  analysis failed: {e.GetType().Name}"); return null; }
     }
 
     private static Scored Score(EmailAnalyser analyser, EmailSubmission email)
