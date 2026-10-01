@@ -12,8 +12,14 @@ public static partial class EmailTextNormalizer
 {
     public const int MaxChars = 6000;
 
-    [GeneratedRegex(@"<(script|style)\b[^>]*>.*?</\1\s*>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
-    private static partial Regex ScriptOrStyle();
+    [GeneratedRegex(@"<(script|style)\b[^>]*>", RegexOptions.IgnoreCase)]
+    private static partial Regex ScriptOrStyleOpen();
+
+    [GeneratedRegex(@"</script\s*>", RegexOptions.IgnoreCase)]
+    private static partial Regex ScriptClose();
+
+    [GeneratedRegex(@"</style\s*>", RegexOptions.IgnoreCase)]
+    private static partial Regex StyleClose();
 
     [GeneratedRegex(@"<[^>]{1,2000}>")]
     private static partial Regex HtmlTag();
@@ -49,7 +55,7 @@ public static partial class EmailTextNormalizer
         if (text.Length > MaxChars * 4)
             text = text[..(MaxChars * 4)];
 
-        text = ScriptOrStyle().Replace(text, " ");
+        text = RemoveScriptAndStyle(text);
         text = HtmlTag().Replace(text, " ");
         text = WebUtility.HtmlDecode(text);
         text = WithoutInvalidCodePoints(Invisible().Replace(text, "")).Normalize(NormalizationForm.FormKC);
@@ -60,6 +66,40 @@ public static partial class EmailTextNormalizer
         text = Whitespace().Replace(text, " ").Trim();
 
         return text.Length > MaxChars ? text[..MaxChars] : text;
+    }
+
+    /// <summary>
+    /// Replaces each &lt;script&gt;/&lt;style&gt; block with a space - exactly the matches of the regex training used,
+    /// <c>&lt;(script|style)\b[^&gt;]*&gt;.*?&lt;/\1\s*&gt;</c>, but in linear time: that regex rescanned the rest of the text
+    /// for every unclosed tag (7,500 "&lt;script&gt;" took 2 s, red-team review). Once a tag name has no closing tag left,
+    /// none of its later opening tags can match either, so they're skipped.
+    /// </summary>
+    internal static string RemoveScriptAndStyle(string text)
+    {
+        StringBuilder? result = null;
+        int copied = 0, searchFrom = 0;
+        bool scriptClosable = true, styleClosable = true;
+        while ((scriptClosable || styleClosable) && ScriptOrStyleOpen().Match(text, searchFrom) is { Success: true } open)
+        {
+            var isScript = open.Groups[1].Value.Length == "script".Length;
+            var close = (isScript ? scriptClosable : styleClosable)
+                ? (isScript ? ScriptClose() : StyleClose()).Match(text, open.Index + open.Length)
+                : Match.Empty;
+            if (!close.Success)
+            {
+                if (isScript)
+                    scriptClosable = false;
+                else
+                    styleClosable = false;
+                searchFrom = open.Index + 1;
+                continue;
+            }
+
+            result ??= new StringBuilder(text.Length);
+            result.Append(text, copied, open.Index - copied).Append(' ');
+            copied = searchFrom = close.Index + close.Length;
+        }
+        return result is null ? text : result.Append(text, copied, text.Length - copied).ToString();
     }
 
     /// <summary>
