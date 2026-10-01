@@ -59,7 +59,7 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
             return new ComponentResult(Source, 0, true, []);
 
         var findings = new List<Finding>();
-        foreach (var link in links.Take(MaxLinks))
+        foreach (var link in Select(links))
             findings.AddRange(AnalyseLink(link, senderDomain));
 
         // One strong signal per rule type is enough; 30 tracking links through the same shortener shouldn't add up.
@@ -71,6 +71,20 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
 
         return new ComponentResult(Source, Scoring.NoisyOr(distinct), true, distinct);
     }
+
+    /// <summary>
+    /// At most MaxLinks links are analysed. When there are more, every destination host gets a turn before any host gets
+    /// a second link, so hundreds of decoy links to one legitimate site can't push the real link past the cap (red team).
+    /// </summary>
+    private static IEnumerable<EmailLink> Select(IReadOnlyList<EmailLink> links) =>
+        links.Count <= MaxLinks
+            ? links
+            : links.Select((link, index) => (link, index, host: DomainUtils.GetHost(Unwrap(link.Href)) ?? link.Href))
+                .GroupBy(x => x.host)
+                .SelectMany(g => g.Select((x, rank) => (x.link, x.index, rank)))
+                .OrderBy(x => x.rank).ThenBy(x => x.index)
+                .Take(MaxLinks)
+                .Select(x => x.link);
 
     private IEnumerable<Finding> AnalyseLink(EmailLink link, string? senderDomain)
     {

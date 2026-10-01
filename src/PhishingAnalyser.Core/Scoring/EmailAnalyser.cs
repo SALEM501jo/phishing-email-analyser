@@ -171,7 +171,7 @@ public sealed class EmailAnalyser(
     private static EmailSubmission WithQrLinks(EmailSubmission e) =>
         e.QrCodeUrls is not { Count: > 0 } qr || e.Links?.Any(l => l.Text == QrLinkText) == true
             ? e
-            : WithLinks(e, [.. e.Links ?? [], .. qr.Take(10).Select(u => new EmailLink(QrLinkText, u))]);
+            : WithLinks(e, [.. qr.Take(10).Select(u => new EmailLink(QrLinkText, u)), .. e.Links ?? []]); // first: never past a link cap
 
     private const string QrLinkText = "QR code";
 

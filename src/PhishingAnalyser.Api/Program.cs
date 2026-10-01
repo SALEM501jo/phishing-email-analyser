@@ -127,7 +127,7 @@ builder.Services.AddRateLimiter(o =>
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     // One bucket per API client when keys are in use, otherwise per client IP (as reported by the trusted proxy).
     o.AddPolicy("analyse", ctx => RateLimitPartition.GetFixedWindowLimiter(
-        ctx.Items[ApiClients.ItemKey] is string client ? $"client:{client}" : $"ip:{ctx.Connection.RemoteIpAddress}",
+        ctx.Items[ApiClients.ItemKey] is string client ? $"client:{client}" : IpBucket(ctx.Connection.RemoteIpAddress),
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = builder.Configuration.GetValue("RateLimit:PerMinute", 60),
@@ -156,8 +156,9 @@ app.Use((ctx, next) =>
 });
 app.UseRateLimiter();
 
-// Prometheus metrics only on the internal port - docker-compose doesn't publish it to the proxy.
-app.MapPrometheusScrapingEndpoint().RequireHost($"*:{metricsPort}");
+// Prometheus metrics only for requests that ARRIVED on the internal port, which docker-compose doesn't publish to the
+// proxy. Checking the Host header instead (RequireHost) let anyone ask the public port for "Host: x:9464" (red-team review).
+app.UseOpenTelemetryPrometheusScrapingEndpoint(ctx => ctx.Request.Path == "/metrics" && ctx.Connection.LocalPort == metricsPort);
 
 // Warm the model at startup so the first request isn't slow and a broken model fails loudly in the logs.
 var classifier = app.Services.GetRequiredService<IContentClassifier>();
@@ -221,6 +222,7 @@ app.MapPost("/api/v1/feedback", Results<NoContent, ValidationProblem> (FeedbackR
 // Error rates per verdict (counts only, no content).
 app.MapGet("/api/v1/feedback/summary", (FeedbackStore store) => Results.Ok(store.Summary()))
     .AddEndpointFilter(RequireApiKey)
+    .RequireRateLimiting("analyse") // a full-table GROUP BY per call
     .WithName("FeedbackSummary");
 
 await app.RunAsync();
@@ -262,6 +264,20 @@ static async ValueTask<object?> RequireApiKey(EndpointFilterInvocationContext ct
         return await next(ctx);
     http.RequestServices.GetRequiredService<Telemetry>().RejectedKey();
     return Results.Unauthorized();
+}
+
+// One customer normally holds a whole IPv6 /64, so a bucket per address would hand them 2^64 buckets (red-team review).
+static string IpBucket(IPAddress? ip)
+{
+    if (ip is null)
+        return "ip:unknown";
+    if (ip.IsIPv4MappedToIPv6)
+        ip = ip.MapToIPv4();
+    if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6)
+        return $"ip:{ip}";
+    var bytes = ip.GetAddressBytes();
+    Array.Clear(bytes, 8, 8);
+    return $"ip:{new IPAddress(bytes)}/64";
 }
 
 static Microsoft.AspNetCore.HttpOverrides.IPNetwork ParseNetwork(string cidr)

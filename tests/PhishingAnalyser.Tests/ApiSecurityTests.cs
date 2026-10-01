@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -81,17 +83,39 @@ public class ApiSecurityTests(WebApplicationFactory<Program> factory) : IClassFi
     [Fact]
     public async Task Metrics_are_served_only_on_the_internal_port()
     {
-        var client = factory.CreateClient();
+        // The test server has no real ports, so a test-only header says which listener the request "arrived" on.
+        var client = factory.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton<IStartupFilter>(new LocalPortFromHeader()))).CreateClient();
         await client.PostAsJsonAsync("/api/v1/analyse", Body);
 
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/metrics")).StatusCode);
 
+        // A Host header naming the metrics port is not enough: what counts is the port the request arrived on.
+        using var forged = new HttpRequestMessage(HttpMethod.Get, "/metrics");
+        forged.Headers.Host = "localhost:9464";
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(forged)).StatusCode);
+
         using var request = new HttpRequestMessage(HttpMethod.Get, "/metrics");
-        request.Headers.Host = "localhost:9464";
+        request.Headers.Add(LocalPortFromHeader.Header, "9464");
         var response = await client.SendAsync(request);
         response.EnsureSuccessStatusCode();
         var text = await response.Content.ReadAsStringAsync();
         Assert.Contains("phishing_analyses", text);
         Assert.DoesNotContain("hello", text); // no email content in metrics
+    }
+
+    private sealed class LocalPortFromHeader : IStartupFilter
+    {
+        public const string Header = "X-Test-Local-Port";
+
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((ctx, n) =>
+            {
+                if (int.TryParse(ctx.Request.Headers[Header], out var port))
+                    ctx.Connection.LocalPort = port;
+                return n(ctx);
+            });
+            next(app);
+        };
     }
 }

@@ -16,7 +16,9 @@ const GmailDom = {
 
 const MAX_BODY = 60000;
 const MAX_LINKS = 300;
+const MAX_LINK_CANDIDATES = 5000; // bound on the work for an email stuffed with links
 const MAX_QR_IMAGES = 5;
+const MAX_MESSAGES = 10;          // expanded messages of one thread analysed per scan (newest first)
 
 // Only images Gmail itself serves (its image proxy or attachment URLs) - never the sender's own servers,
 // where fetching an image (a tracking pixel) would tell the sender the email was opened.
@@ -51,23 +53,34 @@ function largestTextBlock(root) {
   return blocks.filter((b) => b.length >= max * 0.9).sort((a, b) => a.length - b.length)[0].div;
 }
 
-/** Returns the last expanded, visible message in the open conversation, or null. */
-function findOpenMessage(diagnostics = {}) {
+/**
+ * Every expanded, visible message in the open conversation, newest first. All of them are analysed: with only the
+ * last one, an attacker could follow the phishing email with a harmless reply in the same thread, and the thread
+ * would show a single green banner (found by the red-team review).
+ */
+function findOpenMessages(diagnostics = {}) {
   const { els: messages, strategy } = locateAll(document, GmailDom.message);
   diagnostics.message = strategy;
-  for (let i = messages.length - 1; i >= 0; i--) {
+  diagnostics.body = -1;
+  const open = [];
+  for (let i = messages.length - 1; i >= 0 && open.length < MAX_MESSAGES; i--) {
+    if (open.some((o) => o.root.contains(messages[i]) || messages[i].contains(o.root))) continue; // nested match of one message
     let { el: body, strategy: bodyStrategy } = locate(messages[i], GmailDom.body);
     if (!body) {
       body = largestTextBlock(messages[i]);
       bodyStrategy = body ? GmailDom.body.length : -1; // index past the list = heuristic fallback
     }
     if (body && body.offsetParent !== null) {
-      diagnostics.body = bodyStrategy;
-      return { root: messages[i], body };
+      if (open.length === 0) diagnostics.body = bodyStrategy;
+      open.push({ root: messages[i], body });
     }
   }
-  diagnostics.body = -1;
-  return null;
+  return open;
+}
+
+/** The last expanded, visible message in the open conversation, or null. */
+function findOpenMessage(diagnostics = {}) {
+  return findOpenMessages(diagnostics)[0] ?? null;
 }
 
 /**
@@ -93,13 +106,7 @@ function extractEmail({ root, body }, diagnostics = {}) {
   diagnostics.sender = sender.strategy;
   diagnostics.subject = subject.strategy;
 
-  const links = [];
-  for (const a of body.querySelectorAll("a[href]")) {
-    if (links.length >= MAX_LINKS) break;
-    const href = a.getAttribute("href");
-    if (!href || href.startsWith("#")) continue;
-    links.push({ text: (a.innerText ?? "").trim().slice(0, 300), href });
-  }
+  const links = extractLinks(body);
 
   const attachments = extractAttachments(root);
   diagnostics.attachments = attachments.length;
@@ -115,12 +122,75 @@ function extractEmail({ root, body }, diagnostics = {}) {
   };
 }
 
+/**
+ * Everything in the body that takes the reader somewhere: ordinary links, image-map areas, and forms (a form's
+ * action is where a typed password goes). Reading only <a href> let an image map or a form skip every link check.
+ */
+function extractLinks(body) {
+  const candidates = [];
+  for (const el of body.querySelectorAll("a[href], area[href], form[action], [formaction]")) {
+    if (candidates.length >= MAX_LINK_CANDIDATES) break;
+    const tag = el.tagName.toLowerCase();
+    const href = el.getAttribute(tag === "form" ? "action" : el.hasAttribute("formaction") && tag !== "a" && tag !== "area" ? "formaction" : "href");
+    if (!href || href.startsWith("#")) continue;
+    const text = tag === "a" ? el.innerText
+      : tag === "area" ? el.getAttribute("alt") || el.getAttribute("title")
+      : el.querySelector?.("button, input[type='submit']")?.innerText || el.getAttribute("value") || el.innerText;
+    candidates.push({ text: (text ?? "").trim().slice(0, 300), href, el });
+  }
+  return selectLinks(candidates).map(({ text, href }) => ({ text, href }));
+}
+
+/**
+ * At most MAX_LINKS links are sent. When there are more, visible links go first and every destination host gets a
+ * turn before any host gets a second link - so hundreds of hidden or same-site decoy links can't push the one real
+ * link past the cap (found by the red-team review).
+ */
+function selectLinks(candidates) {
+  if (candidates.length <= MAX_LINKS) return candidates;
+  const seen = new Map();
+  const ranked = candidates.map((c, index) => {
+    const hidden = isHidden(c.el);
+    let host = c.href;
+    try { host = new URL(c.href, location.href).host || c.href; } catch { /* unparseable: its own bucket */ }
+    const key = `${hidden ? "h" : "v"}|${host}`;
+    const rank = seen.get(key) ?? 0;
+    seen.set(key, rank + 1);
+    return { ...c, index, hidden, rank };
+  });
+  return ranked
+    .sort((a, b) => a.hidden - b.hidden || a.rank - b.rank || a.index - b.index)
+    .slice(0, MAX_LINKS)
+    .sort((a, b) => a.index - b.index);
+}
+
+function isHidden(el) {
+  for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden") return true;
+  }
+  return false;
+}
+
+/**
+ * "mime/type:file name:https://..." - the name itself may contain ':' ("Remittance:Advice.html"), so it is everything
+ * between the first ':' and the URL at the end, not simply the second ':'-separated field.
+ */
+function parseDownloadUrl(value) {
+  const first = value.indexOf(":");
+  if (first < 0) return null;
+  const rest = value.slice(first + 1);
+  const url = rest.search(/:https?:\/\/[^:]*$/i);
+  const name = (url >= 0 ? rest.slice(0, url) : rest.split(":")[0]).trim();
+  return name ? { name, mimeType: value.slice(0, first) } : null;
+}
+
 /** Attachment names and types from Gmail's attachment chips - the files themselves are never read. */
 function extractAttachments(root) {
   const found = new Map();
   for (const chip of locateAll(root, GmailDom.attachment).els) {
-    const [mimeType, name] = (chip.getAttribute("download_url") ?? "").split(":");
-    if (name) found.set(name, { name, mimeType });
+    const parsed = parseDownloadUrl(chip.getAttribute("download_url") ?? "");
+    if (parsed) found.set(parsed.name, parsed);
   }
   if (found.size === 0) {
     for (const label of locateAll(root, GmailDom.attachmentName).els) {

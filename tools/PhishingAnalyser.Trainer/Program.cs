@@ -110,7 +110,9 @@ if (establishedStudy)
         : linearModel;
     var shippedScoring = new ScoringOptions { TrustVerifiedBrandSenders = true };
     if (studyClassifier.Model?.Thresholds is { } th) { shippedScoring.PhishingThreshold = th.Phishing; shippedScoring.SuspiciousThreshold = th.Suspicious; }
-    await EstablishedSenderStudy.RunAsync(emails.Where(e => e.Class == EmailClasses.Phishing && e.Modern), studyMbox, studyClassifier, shippedScoring);
+    // Test split only: on phishing the transformer was trained on, its text scores are inflated, which would understate
+    // how many phishing emails a trust rule lets through.
+    await EstablishedSenderStudy.RunAsync(modernTest.Where(e => e.Class == EmailClasses.Phishing), studyMbox, studyClassifier, shippedScoring);
     return;
 }
 

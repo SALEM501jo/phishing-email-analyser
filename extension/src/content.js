@@ -13,16 +13,35 @@ function schedule() {
 
 async function scan() {
   const diagnostics = { at: new Date().toISOString() };
-  const open = findOpenMessage(diagnostics);
-  if (!open) {
+  const open = findOpenMessages(diagnostics);
+  if (open.length === 0) {
     // An email is clearly open but none of the strategies can read it: Gmail's layout changed.
     // Say so instead of silently doing nothing.
     if (emailViewOpen()) showLayoutWarning(diagnostics);
     return;
   }
+  // Every expanded message of the thread gets its own verdict (newest first; diagnostics describe the newest).
+  await Promise.all(open.map((message, i) => scanMessage(message, i === 0 ? diagnostics : {})));
+}
 
+/** The key a message's verdict is cached under: Gmail's permanent id, else sender + subject. */
+function messageKey(root, senderEmail, subject) {
+  return messageId(root) ?? `${senderEmail}|${subject}`;
+}
+
+/** The banner of the message with this key, if that message is still on screen. */
+function bannerFor(id) {
+  for (const { root } of findOpenMessages()) {
+    const key = messageId(root)
+      ?? `${locate(root, GmailDom.sender).el?.getAttribute("email") ?? ""}|${locate(document, GmailDom.subject).el?.innerText.trim() ?? ""}`;
+    if (key === id) return root.querySelector(BANNER_TAG);
+  }
+  return null;
+}
+
+async function scanMessage(open, diagnostics) {
   const extracted = extractEmail(open, diagnostics);
-  const id = messageId(open.root) ?? `${extracted.senderEmail}|${extracted.subject}`;
+  const id = messageKey(open.root, extracted.senderEmail, extracted.subject);
 
   let banner = open.root.querySelector(BANNER_TAG);
   if (!banner) {
@@ -66,8 +85,9 @@ async function scan() {
 
   saveDiagnostics({ ...diagnostics, ok: state.status === "done" });
 
-  // Re-query: Gmail may have replaced the node while we were waiting.
-  (findOpenMessage()?.root.querySelector(BANNER_TAG) ?? banner)._render(state);
+  // Re-query by message id: Gmail may have replaced the node while we were waiting - or the user may have opened a
+  // different email, and this verdict must never be painted onto that one (it stays cached for when they come back).
+  bannerFor(id)?._render(state);
 }
 
 /** Shows a one-off banner at the top of the reading pane when the email can't be read. */

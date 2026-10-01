@@ -77,8 +77,14 @@ async function sendFeedback({ correct, result, email }) {
       language: result.language,
       reasonCodes: [...new Set(reasonCodes)],
       phishingProbability: b.content?.probability,
+      // Clamped to the API's limits: an over-long field would make the API reject the whole report.
       email: shareEmailWithFeedback && email
-        ? { subject: email.subject, senderEmail: email.senderEmail, body: email.body.slice(0, 20000), links: email.links.slice(0, 50) }
+        ? {
+            subject: (email.subject ?? "").slice(0, 1000),
+            senderEmail: (email.senderEmail ?? "").slice(0, 320),
+            body: (email.body ?? "").slice(0, 20000),
+            links: (email.links ?? []).slice(0, 50).map((l) => ({ text: (l.text ?? "").slice(0, 300), href: (l.href ?? "").slice(0, 2048) })),
+          }
         : null,
     }),
   });

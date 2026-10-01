@@ -23,9 +23,13 @@ public sealed class FeedbackRequest
         var errors = new Dictionary<string, string[]>();
         if (Verdict is not (Verdicts.Phishing or Verdicts.Suspicious or Verdicts.Safe))
             errors["verdict"] = ["Verdict must be phishing, suspicious or safe."];
-        if (ReasonCodes?.Count > 50 || ReasonCodes?.Any(c => c.Length > 64) == true)
+        if (ModelVersion?.Length > 100 || Language?.Length > 16)
+            errors["modelVersion"] = ["Model version (100) or language (16) too long."];
+        if (ReasonCodes?.Count > 50 || ReasonCodes?.Any(c => c is null || c.Length > 64) == true)
             errors["reasonCodes"] = ["At most 50 codes of up to 64 characters."];
-        if (Email?.Body?.Length > 20_000 || Email?.Subject?.Length > 1_000 || Email?.Links?.Count > 50)
+        // Every stored field is bounded: one vote used to be able to write ~500 KB to the feedback volume (red-team review).
+        if (Email?.Body?.Length > 20_000 || Email?.Subject?.Length > 1_000 || Email?.SenderEmail?.Length > 320 || Email?.Links?.Count > 50
+            || Email?.Links?.Any(l => l is null || l.Text?.Length > 500 || l.Href?.Length > 2_048) == true)
             errors["email"] = ["Email too large."];
         return errors;
     }
