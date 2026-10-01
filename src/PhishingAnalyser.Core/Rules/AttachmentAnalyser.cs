@@ -29,7 +29,9 @@ public sealed partial class AttachmentAnalyser
     private static readonly HashSet<string> DocumentLike = new(StringComparer.OrdinalIgnoreCase) { "pdf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "txt" };
 
     // "password: 1234", "pwd 1234", "كلمة المرور: 1234" - the password for an attached archive, given so scanners can't look inside.
-    [GeneratedRegex(@"(password|passcode|pwd|pass|كلمة\s*(المرور|السر))\s*[:=]?\s*\S{3,}", RegexOptions.IgnoreCase)]
+    // Atomic groups: plain \s*[:=]?\s* backtracked quadratically on a long whitespace run after "pwd" - 60k spaces took
+    // 10 s per archive attachment (red-team review). Whitespace can never be part of the match after it, so nothing is lost.
+    [GeneratedRegex(@"(?:password|passcode|pwd|pass|كلمة(?>\s*)(?:المرور|السر))(?>\s*)[:=]?(?>\s*)\S{3,}", RegexOptions.IgnoreCase)]
     private static partial Regex PasswordInText();
 
     public ComponentResult Analyse(IReadOnlyList<EmailAttachment>? attachments, string? body)
@@ -38,14 +40,15 @@ public sealed partial class AttachmentAnalyser
             return new ComponentResult(Source, 0, true, []);
 
         var findings = new List<Finding>();
+        var passwordGiven = new Lazy<bool>(() => PasswordInText().IsMatch(body ?? "")); // once per email, not per archive
         foreach (var attachment in attachments.Take(50))
-            findings.AddRange(AnalyseOne(attachment, body ?? ""));
+            findings.AddRange(AnalyseOne(attachment, passwordGiven));
 
         var distinct = findings.GroupBy(f => f.Code).Select(g => g.MaxBy(f => f.Weight)!).OrderByDescending(f => f.Weight).ToList();
         return new ComponentResult(Source, Scoring.NoisyOr(distinct), true, distinct);
     }
 
-    private static IEnumerable<Finding> AnalyseOne(EmailAttachment attachment, string body)
+    private static IEnumerable<Finding> AnalyseOne(EmailAttachment attachment, Lazy<bool> passwordGiven)
     {
         var name = attachment.Name.Trim();
 
@@ -78,7 +81,7 @@ public sealed partial class AttachmentAnalyser
         else if (MacroOrNote.Contains(ext))
             yield return new(Source, "macro-attachment", $"'{name}' can contain macros or embedded files that run code", 0.4,
                 $"الملف '{name}' قد يحتوي على وحدات ماكرو أو ملفات مضمّنة تشغّل تعليمات برمجية", name);
-        else if (Archive.Contains(ext) && PasswordInText().IsMatch(body))
+        else if (Archive.Contains(ext) && passwordGiven.Value)
             yield return new(Source, "password-archive", $"'{name}' is an archive whose password is given in the email - a trick to stop security scanners looking inside", 0.4,
                 $"الملف '{name}' أرشيف كلمة مروره مذكورة في الرسالة - وهي حيلة لمنع برامج الفحص الأمني من فحص محتواه", name);
     }

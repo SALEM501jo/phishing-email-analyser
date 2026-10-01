@@ -8,6 +8,7 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
 {
     public const string Source = "links";
     private const int MaxLinks = 200;
+    private const int MaxRedirectorDepth = 5;
 
     public static bool IsShortener(string host) => Shorteners.Contains(host);
 
@@ -30,13 +31,16 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         ("www.google.com", "q"), ("google.com", "q"), ("safelinks.protection.outlook.com", "url"),
     ];
 
+    // Code-file extensions that are also country TLDs (.py Paraguay, .md Moldova, .sh Saint Helena, .rs Serbia): a bare
+    // "score.py" in link text is most likely a file name, so its mismatch is reported only weakly. Deliberately short -
+    // .pl, .so, .ml and .sc host many real sites, and a bare "mbank.pl" pointing elsewhere must stay a full mismatch
+    // (red-team review). A brand's domain, or a look-alike of one, is never treated as a file name.
+    private static readonly HashSet<string> CodeFileExtensions = new(StringComparer.OrdinalIgnoreCase) { "py", "md", "sh", "rs" };
+
     // Mailing services and security gateways rewrite every link for click tracking or scanning, so the destination
     // can't be seen - on the owner's real mailbox these caused most "text shows X, goes to Y" false alarms.
     // Phishers use the same services, so a tracked link is still reported, just weakly - unless its text claims a
     // brand the sender isn't (then it stays a full mismatch).
-    private static readonly HashSet<string> CodeFileExtensions = new(StringComparer.OrdinalIgnoreCase)
-        { "py", "md", "sh", "rs", "ps", "pl", "so", "ml", "sc", "cs", "ts" };
-
     private static readonly string[] ClickTrackers =
     [
         "mandrillapp.com", "sendgrid.net", "awstrack.me", "list-manage.com", "mcsv.net", "mailchi.mp", "hubspotlinks.com",
@@ -104,7 +108,7 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
                 $"الرابط يؤدي إلى صفحة يمكن لأي شخص نشرها على {platform} ({host}) وليس إلى موقع رسمي");
 
             var platformOwner = brands.OwnerOf(DomainUtils.RegistrableDomain(platform));
-            var userPart = Uri.TryCreate(href, UriKind.Absolute, out var parsed)
+            var userPart = DomainUtils.TryCreateUri(href, out var parsed)
                 ? host[..Math.Max(0, host.Length - platform.Length)] + parsed.PathAndQuery
                 : href;
             if (impersonation is null && brands.MentionedInUrlPart(userPart) is { } named && named != platformOwner)
@@ -120,7 +124,7 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
             yield return new(Source, "suspicious-tld", $"Link uses a TLD frequently abused for phishing (.{DomainUtils.Tld(host)})", 0.12,
                 $"الرابط يستخدم امتداد نطاق شائع الاستخدام في التصيّد (.{DomainUtils.Tld(host)})");
 
-        if (href.Contains('@') && Uri.TryCreate(href, UriKind.Absolute, out var uri) && uri.UserInfo.Length > 0)
+        if (href.Contains('@') && DomainUtils.TryCreateUri(href, out var uri) && uri.UserInfo.Length > 0)
             yield return new(Source, "userinfo-url", $"Link hides its real host after an '@' ({host})", 0.4,
                 $"الرابط يخفي النطاق الحقيقي بعد الرمز '@' ({host})");
 
@@ -128,13 +132,19 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         {
             var senderBrand = senderDomain is null ? null : brands.OwnerOf(senderDomain);
             var shownBrand = brands.OwnerOf(shownHost);
+            // The brand the text claims: its real domain, or a look-alike of it ("paypa1.com", "paypal.com.secure-login.net").
+            var claimedBrand = shownBrand ?? brands.DetectImpersonation(shownHost)?.Brand;
             var platformRedirect = senderBrand is not null && brands.OwnerOf(host) == senderBrand && brands.UserContentPlatform(host) is null;
             var tracked = ClickTrackers.Any(t => DomainUtils.IsSameOrSubdomain(host, t));
             if (platformRedirect)
             {
                 // e.g. an X notification showing a posted youtu.be link, routed through twitter.com - the platform's own redirector.
             }
-            else if (tracked && (shownBrand is null || shownBrand == senderBrand))
+            else if (claimedBrand is null && LooksLikeFileName(link.Text!.Trim(), shownHost))
+                yield return new(Source, "filename-link-text", $"Link text '{shownHost}' is probably a file name - but .{DomainUtils.Tld(shownHost)} is also a country's web domain, and the link goes to '{host}'", 0.1,
+                    $"نص الرابط '{shownHost}' غالبًا اسم ملف - لكن ‎.{DomainUtils.Tld(shownHost)}‎ امتداد نطاق لدولة أيضًا، والرابط يذهب إلى '{host}'");
+            // Only text that claims no brand, or the sender's own real brand, is downgraded - a look-alike never is (red team).
+            else if (tracked && (claimedBrand is null || (shownBrand is not null && shownBrand == senderBrand)))
                 yield return new(Source, "tracked-link", $"Link text shows '{shownHost}' but the click goes through the tracking service {host}", 0.1,
                     $"نص الرابط يعرض '{shownHost}' لكن النقرة تمر عبر خدمة التتبع {host}");
             else
@@ -164,13 +174,14 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         var shownHost = DomainUtils.GetHost(text);
         if (shownHost is null || !DomainUtils.HasKnownTld(shownHost))
             return null; // "report.csv", "chart-inputs.pdf": file names, not websites
-        // Some code-file extensions are also country TLDs (.py Paraguay, .md Moldova, .sh, .rs...). A bare "score.py" -
-        // no scheme, no www., no path - is a file name; "www.score.py" or "http://score.py/x" still counts as a site.
-        if (CodeFileExtensions.Contains(DomainUtils.Tld(shownHost)) && !text.Contains('/') && !text.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
-            return null;
 
         return DomainUtils.RegistrableDomain(shownHost) == DomainUtils.RegistrableDomain(actualHost) ? null : shownHost;
     }
+
+    /// <summary>A bare "score.py" - no scheme, no www., no path - reads as a file; "www.score.py" or "score.py/x" is a site.</summary>
+    private static bool LooksLikeFileName(string text, string shownHost) =>
+        CodeFileExtensions.Contains(DomainUtils.Tld(shownHost)) && !text.Contains('/') && !text.Contains("://", StringComparison.Ordinal)
+        && !text.StartsWith("www.", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Links that are never a phishing destination, often inserted by the mail client itself: Gmail auto-links street
@@ -182,18 +193,34 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         href = href.Trim();
         if (href.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) || href.StartsWith("tel:", StringComparison.OrdinalIgnoreCase))
             return true;
-        if (!Uri.TryCreate(href, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        if (!DomainUtils.TryCreateUri(href, out var uri) || uri.Scheme is not ("http" or "https"))
             return false;
         var host = uri.Host.ToLowerInvariant();
         return host is "www.google.com" or "google.com" or "maps.google.com"
                && uri.AbsolutePath.StartsWith("/maps", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Peels redirector wrappers until the real destination shows - nested ones too (an Outlook safelink around a
+    /// google.com/url link): peeling one layer left a google.com host that passed Google's brand check (red team).
+    /// Nested deeper than any mail client does, the link fails closed as unparseable: no host, so no brand trust.
+    /// </summary>
     internal static string Unwrap(string href)
     {
         href = href.Trim();
-        if (!Uri.TryCreate(href, UriKind.Absolute, out var uri))
-            return href;
+        for (var depth = 0; depth < MaxRedirectorDepth; depth++)
+        {
+            if (UnwrapOnce(href) is not { } inner)
+                return href;
+            href = inner.Trim();
+        }
+        return UnwrapOnce(href) is null ? href : "";
+    }
+
+    private static string? UnwrapOnce(string href)
+    {
+        if (!DomainUtils.TryCreateUri(href, out var uri))
+            return null;
 
         foreach (var (host, param) in Redirectors)
         {
@@ -210,6 +237,6 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
                 return target;
         }
 
-        return href;
+        return null;
     }
 }

@@ -82,7 +82,7 @@ public sealed class ThreatFeedStore
     /// <summary>Scheme-less, lower-case host, no trailing slash, no fragment - so trivial variations still match.</summary>
     internal static string? Normalise(string url)
     {
-        if (!Uri.TryCreate(url.Contains("://") ? url : "http://" + url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        if (!Rules.DomainUtils.TryCreateUri(url.Contains("://") ? url : "http://" + url, out var uri) || uri.Scheme is not ("http" or "https"))
             return null;
         var path = uri.PathAndQuery.TrimEnd('/');
         try

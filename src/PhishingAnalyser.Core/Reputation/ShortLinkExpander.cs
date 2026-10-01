@@ -67,7 +67,7 @@ public sealed class ShortLinkExpander(HttpClient http, TimeSpan? timeout = null)
                     break; // reached the real destination - read its address, never contact it
             }
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or UriFormatException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or UriFormatException or IndexOutOfRangeException)
         {
             // Unreachable, blocked by the SSRF guard, or out of time: leave the link unexpanded.
         }

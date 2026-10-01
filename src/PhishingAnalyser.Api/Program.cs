@@ -23,6 +23,11 @@ if (args is ["--new-api-key", var clientName])
     return 0;
 }
 
+// The models were trained on NFKC-folded text; refuse to serve rather than silently feed them different input.
+if (!EmailTextNormalizer.NormalizationAvailable)
+    throw new InvalidOperationException("Unicode normalization is unavailable (invariant globalization or no ICU) - " +
+                                        "the text models would see different input than they were trained on.");
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 512 * 1024);
@@ -187,7 +192,7 @@ app.MapPost("/api/v1/analyse", async Task<Results<Ok<AnalysisResult>, Validation
                 .OfType<string>().Select(PhishingAnalyser.Core.Rules.DomainUtils.RegistrableDomain).Distinct();
             var codes = result.Breakdown.Headers.Findings.Concat(result.Breakdown.Links.Findings).Select(f => f.Code).Distinct();
             foreach (var l in (submission.Links ?? []).Where(l => PhishingAnalyser.Core.Rules.DomainUtils.GetHost(l.Href)?.EndsWith("google.com") == true).Take(3))
-                if (Uri.TryCreate(l.Href, UriKind.Absolute, out var gu))
+                if (PhishingAnalyser.Core.Rules.DomainUtils.TryCreateUri(l.Href, out var gu))
                     logger.LogInformation("[dev] google link host={Host} path={Path} params={Params}", gu.Host, gu.AbsolutePath,
                         string.Join(",", System.Web.HttpUtility.ParseQueryString(gu.Query).AllKeys));
             logger.LogInformation("[dev] sender={Sender} linkDomains={LinkDomains} codes={Codes}",

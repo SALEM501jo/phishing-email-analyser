@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace PhishingAnalyser.Core.Content;
@@ -36,6 +37,12 @@ public static partial class EmailTextNormalizer
     [GeneratedRegex("[­​-‏⁠﻿]")]
     private static partial Regex Invisible();
 
+    /// <summary>
+    /// False when the runtime can't do Unicode normalization: .NET's invariant-globalization mode silently skips it, so
+    /// "𝐏𝐚𝐲𝐏𝐚𝐥" would reach the models unfolded although training folded it to "PayPal" (found by the red-team review).
+    /// </summary>
+    public static bool NormalizationAvailable => "\uFB01".Normalize(NormalizationForm.FormKC) == "fi";
+
     public static string Normalize(string? subject, string? body)
     {
         var text = $"{subject}\n{body}";
@@ -45,7 +52,7 @@ public static partial class EmailTextNormalizer
         text = ScriptOrStyle().Replace(text, " ");
         text = HtmlTag().Replace(text, " ");
         text = WebUtility.HtmlDecode(text);
-        text = Invisible().Replace(text, "").Normalize(System.Text.NormalizationForm.FormKC);
+        text = WithoutInvalidCodePoints(Invisible().Replace(text, "")).Normalize(NormalizationForm.FormKC);
         text = ArabicText.Normalize(text);
         text = Url().Replace(text, " urltoken ");
         text = EmailAddress().Replace(text, " emailtoken ");
@@ -53,5 +60,32 @@ public static partial class EmailTextNormalizer
         text = Whitespace().Replace(text, " ").Trim();
 
         return text.Length > MaxChars ? text[..MaxChars] : text;
+    }
+
+    /// <summary>
+    /// Drops what string.Normalize rejects - unpaired surrogates and the noncharacters U+FFFE/U+FFFF (HTML "&amp;#xFFFE;"
+    /// produces one) - which made it throw, leaving the email without a verdict (red-team review). Valid text is returned
+    /// unchanged, so training and inference still see identical input.
+    /// </summary>
+    private static string WithoutInvalidCodePoints(string text)
+    {
+        StringBuilder? clean = null;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            var pair = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
+            var invalid = !pair && (char.IsSurrogate(c) || c is '\uFFFE' or '\uFFFF');
+            if (invalid && clean is null)
+                clean = new StringBuilder(text.Length).Append(text, 0, i);
+            if (!invalid)
+            {
+                clean?.Append(c);
+                if (pair)
+                    clean?.Append(text[i + 1]);
+            }
+            if (pair)
+                i++;
+        }
+        return clean?.ToString() ?? text;
     }
 }

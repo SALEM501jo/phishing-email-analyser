@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net;
 using System.Net.Mail;
@@ -41,6 +42,39 @@ public static class DomainUtils
 
     public static bool IsFreeMail(string? domain) => domain is not null && FreeMailDomains.Contains(domain);
 
+    /// <summary>
+    /// Uri.TryCreate that never throws. .NET 8's own TryCreate throws IndexOutOfRangeException (instead of returning false)
+    /// for implicit-file/UNC strings whose only host character is a bidi mark ("file://" + U+200F, "//" + U+200F) - found
+    /// by the red-team review. Every URL here is attacker-written, so a parse failure means "not a URL", never a crash.
+    /// </summary>
+    public static bool TryCreateUri(string? value, [NotNullWhen(true)] out Uri? uri)
+    {
+        try
+        {
+            return Uri.TryCreate(value, UriKind.Absolute, out uri);
+        }
+        catch (Exception e) when (e is IndexOutOfRangeException or ArgumentException or UriFormatException)
+        {
+            uri = null;
+            return false;
+        }
+    }
+
+    /// <summary>The Public Suffix List parse, or null. Nager validates with Uri.TryCreate, so it inherits that throw.</summary>
+    private static DomainInfo? ParseDomain(string host)
+    {
+        if (Psl.Value is not { } parser)
+            return null;
+        try
+        {
+            return parser.TryParse(host, out var info) ? info : null;
+        }
+        catch (Exception e) when (e is IndexOutOfRangeException or ArgumentException or UriFormatException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Extracts the host from a URL, tolerating scheme-less "www.example.com/..." values.</summary>
     public static string? GetHost(string? url)
     {
@@ -51,7 +85,7 @@ public static class DomainUtils
         if (!url.Contains("://", StringComparison.Ordinal))
             url = "http://" + url;
 
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        if (!TryCreateUri(url, out var uri))
             return null;
         if (uri.Scheme is not ("http" or "https"))
             return null;
@@ -95,16 +129,9 @@ public static class DomainUtils
     {
         if (IsIpAddress(host))
             return false;
-        if (Psl.Value is not { } parser)
+        if (Psl.Value is null)
             return true; // without the list, keep the old behaviour rather than silently disabling the rule
-        try
-        {
-            return parser.TryParse(host, out var info) && info?.TopLevelDomainRule is { } rule && rule.Name != "*";
-        }
-        catch (Exception)
-        {
-            return false;
-        }
+        return ParseDomain(host)?.TopLevelDomainRule is { } rule && rule.Name != "*";
     }
 
     /// <summary>"login.secure.paypal.co.uk" -> "paypal.co.uk"; "paypal-login.pages.dev" -> itself (pages.dev is a hosting platform).</summary>
@@ -113,7 +140,7 @@ public static class DomainUtils
         if (IsIpAddress(host))
             return host;
 
-        if (Psl.Value is { } parser && parser.TryParse(host, out var info) && !string.IsNullOrEmpty(info?.RegistrableDomain))
+        if (ParseDomain(host) is { } info && !string.IsNullOrEmpty(info.RegistrableDomain))
             return info.RegistrableDomain;
 
         var labels = host.Split('.', StringSplitOptions.RemoveEmptyEntries);
@@ -132,7 +159,7 @@ public static class DomainUtils
     /// </summary>
     public static string? PrivatePlatformSuffix(string host)
     {
-        if (IsIpAddress(host) || Psl.Value is not { } parser || !parser.TryParse(host, out var info) || info?.TopLevelDomainRule is null)
+        if (IsIpAddress(host) || ParseDomain(host) is not { TopLevelDomainRule: not null } info)
             return null;
         return info.TopLevelDomainRule.Division == TldRuleDivision.Private && !string.IsNullOrEmpty(info.RegistrableDomain)
             ? info.TopLevelDomain

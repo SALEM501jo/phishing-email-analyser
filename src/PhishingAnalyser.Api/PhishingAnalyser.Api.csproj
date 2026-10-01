@@ -2,7 +2,9 @@
 
   <PropertyGroup>
     <RootNamespace>PhishingAnalyser.Api</RootNamespace>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Must stay false: invariant mode silently skips Unicode normalization (NFKC), so the API's models would see
+         unfolded text ("𝐏𝐚𝐲𝐏𝐚𝐥", Arabic presentation forms) that training had folded. The aspnet image ships ICU. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
