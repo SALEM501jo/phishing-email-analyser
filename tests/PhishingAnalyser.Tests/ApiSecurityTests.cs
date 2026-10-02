@@ -17,10 +17,14 @@ public class ApiSecurityTests(WebApplicationFactory<Program> factory) : IClassFi
     private static readonly (string Key, string Sha256) Phone = ApiClients.NewKey();
     private static readonly object Body = new { subject = "hello" };
 
-    private WebApplicationFactory<Program> WithClients(int perMinute = 60) => factory.WithWebHostBuilder(b => b
+    private WebApplicationFactory<Program> WithClients(int perMinute = 60) => factory.WithWebHostBuilder(b => NoModels(b)
         .UseSetting("ApiClients:0:Name", "laptop").UseSetting("ApiClients:0:KeySha256", Laptop.Sha256)
         .UseSetting("ApiClients:1:Name", "phone").UseSetting("ApiClients:1:KeySha256", Phone.Sha256)
         .UseSetting("RateLimit:PerMinute", perMinute.ToString()));
+
+    /// <summary>Rules only: these tests exercise the HTTP layer, and every extra host that loads the models costs ~500 MB.</summary>
+    private static IWebHostBuilder NoModels(IWebHostBuilder b) =>
+        b.UseSetting("ContentModel:Path", "no-model.zip").UseSetting("ContentModel:TransformerPath", "no-transformer");
 
     private static HttpClient Keyed(WebApplicationFactory<Program> app, string? key)
     {
@@ -70,7 +74,7 @@ public class ApiSecurityTests(WebApplicationFactory<Program> factory) : IClassFi
     [Fact]
     public void Proxy_addresses_come_from_configuration()
     {
-        var app = factory.WithWebHostBuilder(b => b
+        var app = factory.WithWebHostBuilder(b => NoModels(b)
             .UseSetting("ForwardedHeaders:KnownProxies:0", "172.30.57.1")
             .UseSetting("ForwardedHeaders:KnownNetworks:0", "10.8.0.0/24"));
         var options = app.Services.GetRequiredService<IOptions<ForwardedHeadersOptions>>().Value;
@@ -84,7 +88,7 @@ public class ApiSecurityTests(WebApplicationFactory<Program> factory) : IClassFi
     public async Task Metrics_are_served_only_on_the_internal_port()
     {
         // The test server has no real ports, so a test-only header says which listener the request "arrived" on.
-        var client = factory.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton<IStartupFilter>(new LocalPortFromHeader()))).CreateClient();
+        var client = factory.WithWebHostBuilder(b => NoModels(b).ConfigureServices(s => s.AddSingleton<IStartupFilter>(new LocalPortFromHeader()))).CreateClient();
         await client.PostAsJsonAsync("/api/v1/analyse", Body);
 
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/metrics")).StatusCode);

@@ -57,9 +57,14 @@ public sealed class FeedbackRequest
 public sealed class FeedbackStore
 {
     private readonly string _connectionString;
+    private readonly string _path;
+    private readonly long _maxBytes;
 
-    public FeedbackStore(string databasePath)
+    /// <param name="maxBytes">The database stops accepting votes at this size: the volume shares a disk with other services.</param>
+    public FeedbackStore(string databasePath, long maxBytes = long.MaxValue)
     {
+        _path = databasePath;
+        _maxBytes = maxBytes;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(databasePath))!);
         _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadWriteCreate }.ToString();
         using var connection = Open();
@@ -82,8 +87,11 @@ public sealed class FeedbackStore
         create.ExecuteNonQuery();
     }
 
-    public void Add(FeedbackRequest f)
+    /// <summary>False when the store is full (see the size cap) and the vote was not recorded.</summary>
+    public bool Add(FeedbackRequest f)
     {
+        if (new FileInfo(_path) is { Exists: true } file && file.Length >= _maxBytes)
+            return false;
         using var connection = Open();
         using var insert = connection.CreateCommand();
         insert.CommandText = """
@@ -101,6 +109,7 @@ public sealed class FeedbackStore
         insert.Parameters.AddWithValue("$prob", (object?)f.PhishingProbability ?? DBNull.Value);
         insert.Parameters.AddWithValue("$email", f.Email is null ? DBNull.Value : JsonSerializer.Serialize(f.Email));
         insert.ExecuteNonQuery();
+        return true;
     }
 
     /// <summary>Error rates per verdict - no content, safe to expose to the owner.</summary>

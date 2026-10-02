@@ -18,6 +18,8 @@ public class RedTeam_api_0(WebApplicationFactory<Program> factory) : IClassFixtu
 
     private WebApplicationFactory<Program> App(int perMinute = 60, string? db = null) => factory.WithWebHostBuilder(b => b
         .UseSetting("Reputation:Enabled", "false")              // no network lookups in these tests
+        // Rules only: these tests exercise the HTTP layer, and every host that loads the models costs ~500 MB.
+        .UseSetting("ContentModel:Path", "no-model.zip").UseSetting("ContentModel:TransformerPath", "no-transformer")
         .UseSetting("Feedback:DatabasePath", db ?? TempDb())
         .UseSetting("RateLimit:PerMinute", perMinute.ToString())
         // Same proxy setup as docker-compose.yml: the host's reverse proxy reaches the container from the bridge gateway.
@@ -32,6 +34,13 @@ public class RedTeam_api_0(WebApplicationFactory<Program> factory) : IClassFixtu
             app.Use((ctx, n) => { ctx.Connection.RemoteIpAddress = proxy; return n(ctx); });
             next(app);
         };
+    }
+
+    [Fact]
+    public void Feedback_store_stops_accepting_votes_at_its_size_cap()
+    {
+        var store = new PhishingAnalyser.Api.FeedbackStore(TempDb(), maxBytes: 1); // the empty database is already larger
+        Assert.False(store.Add(new PhishingAnalyser.Api.FeedbackRequest { Correct = true, Verdict = "safe" }));
     }
 
     // ---- 1. Attachment names are cut at 255 chars by the API, which cuts off the file extension ----------------------
@@ -152,6 +161,8 @@ public class RedTeam_api_0(WebApplicationFactory<Program> factory) : IClassFixtu
         // Real Kestrel, two listeners - like the Docker image (ASPNETCORE_HTTP_PORTS="8080;9464"), loopback only here.
         psi.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{publicPort};http://127.0.0.1:{metricsPort}";
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+        psi.Environment["AllowAnonymous"] = "true";
+        psi.Environment["ContentModel__TransformerPath"] = Path.Combine(Path.GetTempPath(), "no-transformer");
         psi.Environment["Metrics__Port"] = metricsPort.ToString();
         psi.Environment["Reputation__Enabled"] = "false";
         psi.Environment["Feedback__DatabasePath"] = TempDb();

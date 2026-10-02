@@ -12,16 +12,19 @@ services:
     environment:
       # Per-install API keys: generate with
       #   docker run --rm ghcr.io/salem501jo/phishing-analyser --new-api-key <name>
-      # and put the printed hash lines in .env (ApiClients__0__Name / ApiClients__0__KeySha256, ...).
+      # and put the two printed API_CLIENT_N_* lines in a .env file next to this one. The API refuses to start in
+      # production without at least one key (set ALLOW_ANONYMOUS=true in .env to run it open on purpose).
       - ApiClients__0__Name=${API_CLIENT_0_NAME:-}
       - ApiClients__0__KeySha256=${API_CLIENT_0_SHA256:-}
       - ApiClients__1__Name=${API_CLIENT_1_NAME:-}
       - ApiClients__1__KeySha256=${API_CLIENT_1_SHA256:-}
       - ApiKey=${PHISHING_API_KEY:-}   # legacy single shared key, still accepted
+      - AllowAnonymous=${ALLOW_ANONYMOUS:-false}
       - RateLimit__PerMinute=60
       # A host proxy reaches the container through the bridge gateway (below), not loopback. Only that address
-      # may set X-Forwarded-For, so rate limits apply per real client. If the proxy is itself a container,
-      # put its address here instead.
+      # may set X-Forwarded-For, so rate limits apply per real client. If the proxy is itself a container, attach it
+      # to the "analyser" network, proxy to phishing-analyser:8080, and trust the subnet instead:
+      #   ForwardedHeaders__KnownNetworks__0=172.30.57.0/24
       - ForwardedHeaders__KnownProxies__0=172.30.57.1
     networks:
       - analyser

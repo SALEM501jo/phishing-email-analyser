@@ -18,7 +18,7 @@ RUN mkdir -p /app/data && chown app /app/data   # feedback volume mount point, w
 # 8080 = the API (behind the reverse proxy); 9464 = Prometheus metrics (internal only)
 ENV ASPNETCORE_HTTP_PORTS="8080;9464" \
     DOTNET_gcServer=0 \
-    DOTNET_GCHeapHardLimit=0x10000000
+    DOTNET_GCHeapHardLimit=0x14000000
 USER app
 EXPOSE 8080 9464
 # The runtime image has no curl, so the API binary probes its own /health (no web host is started for this).

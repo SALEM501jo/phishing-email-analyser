@@ -18,7 +18,7 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
   - An **SSRF-safe** link expander.
   - An **adversarial review** of the trust rules: 7 holes, each proven by a failing test, then fixed. It also found that
     production had silently skipped a text-normalisation step that training used. [Details](#adversarial-review-red-team).
-  - CI with Trivy, SBOM, gitleaks, CodeQL and a smoke test of the built image; 269 tests.
+  - CI with Trivy, SBOM, gitleaks, CodeQL and a smoke test of the built image; 279 .NET and 27 extension tests.
 
 ```
 ┌──────────── Gmail tab ─────────────┐          ┌──────────── ASP.NET Core API (Docker) ────────────────┐
@@ -286,8 +286,8 @@ regex on 20,000 random inputs, so training and serving still see the same text.
 ## Running locally
 
 ```bash
-python scripts/models.py fetch                                  # model binaries from the GitHub Release, SHA-256 verified
-dotnet test                                                     # 269 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, red team, end-to-end
+python scripts/models.py fetch                                  # model binaries from the GitHub Release, SHA-256 verified (needs the GitHub CLI: gh auth login)
+dotnet test                                                     # 279 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, red team, end-to-end
 dotnet run --project src/PhishingAnalyser.Api --launch-profile http   # http://localhost:5080/swagger
 ```
 
@@ -309,12 +309,18 @@ python scripts/models.py publish                                 # release "mode
 2. **extension**: syntax-check the JS, run the Vitest tests, `npm audit`, validate the MV3 manifest, and publish the packaged `.zip` as a build artifact.
 3. **image-scan**: build the image, **boot it** (a smoke test checks `/health`, the loaded model, and that look-alike Unicode text scores like plain text), then scan it with **Trivy** (fails on fixable HIGH/CRITICAL vulnerabilities, secrets or misconfigurations). Also generates an **SPDX SBOM**. Both are kept as build artifacts.
 4. **image**: on `main` or tags, push to `ghcr.io/<owner>/phishing-analyser` (tags `latest`, `sha-xxxx`, semver) with SBOM and provenance attestations attached.
-5. **deploy**: SSH to the VPS and run `docker compose pull && up -d --wait`, which fails unless the container becomes healthy. This job is opt-in, so add the following first:
+5. **deploy**: SSH to the VPS and run `docker compose up -d --no-build --pull always --wait` with `TAG` pinned to the image this run built. It fails unless the container becomes healthy with the model loaded **and** rejects a request that has no API key. This job is opt-in, so add the following first:
    - repository variable `DEPLOY_ENABLED=true`
-   - secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`
-   - optional variable `VPS_APP_DIR`, the folder holding `docker-compose.yml` on the server
+   - secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, and optionally `VPS_HOST_FINGERPRINT` (from `ssh-keygen -l -f /etc/ssh/ssh_host_ed25519_key.pub` on the server) to pin its SSH host key
+   - optional variable `VPS_APP_DIR`, the folder holding `docker-compose.yml` on the server (default `~/phishing-analyser`)
 
-On the VPS, put `docker-compose.yml` in that folder and add a reverse-proxy route such as Caddy's `phishing.example.com { reverse_proxy 127.0.0.1:5080 }`. Create a key per extension install with `docker run --rm ghcr.io/salem501jo/phishing-analyser --new-api-key laptop`. Paste the key into the extension's options, and put the printed hash into a `.env` next to the compose file as `API_CLIENT_0_NAME` / `API_CLIENT_0_SHA256`.
+**One-time server setup.** The server needs an x86-64 CPU (the image is amd64), Docker with the Compose v2 plugin, the deploy user in the `docker` group, `curl`, and free host ports 5080 and 9464.
+1. Copy `docker-compose.yml` into the app folder. The deploy job does not sync it, so copy it again whenever it changes.
+2. Create a key per extension install. The image is private by default, so either make the GHCR package public or run `docker login ghcr.io` with a `read:packages` token first:
+   `docker run --rm ghcr.io/salem501jo/phishing-analyser --new-api-key laptop`
+3. Paste the key into the extension's options. Put the two printed lines into a `.env` file next to the compose file (`API_CLIENT_0_NAME=…`, `API_CLIENT_0_SHA256=…`). **The API refuses to start in production without a key**, so a misnamed variable can't silently leave it open.
+4. Add a reverse-proxy route, for example Caddy's `phishing.example.com { reverse_proxy 127.0.0.1:5080 }`. If the proxy itself runs in a container, see the note in `docker-compose.yml`.
+5. Push to `main`: the deploy job runs after the image is built.
 
 Other workflows:
 - **`security.yml`**: **gitleaks** over the full git history on every push and weekly, and **CodeQL** (C#, JS, Python, workflow files, `security-extended` queries). CodeQL runs only while the repository is public, because GitHub code scanning is free only for public repos.

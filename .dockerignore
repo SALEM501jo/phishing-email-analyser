@@ -14,3 +14,10 @@ scripts/
 models/transformer-best/
 models/transformer-metrics.json
 models/manifest.json
+models/transformer-round2/
+models/transformer-round3/
+# local-only files that must never reach an image
+.claude/
+*.zip
+!models/*.zip
+.env

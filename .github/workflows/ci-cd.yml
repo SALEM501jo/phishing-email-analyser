@@ -91,7 +91,10 @@ jobs:
       # invariant-globalization mode .NET silently skipped that, and nothing short of running the image would show it.
       - name: Smoke test - the image serves and normalises text like training
         run: |
-          docker run -d --name smoke -p 127.0.0.1:8080:8080 phishing-analyser:scan
+          # Same restrictions as docker-compose.yml, so the read-only filesystem, memory limit and feedback volume are
+          # exercised here and not for the first time on the server.
+          docker run -d --name smoke --read-only --tmpfs /tmp --memory 640m --cpus 0.5 -v smoke-feedback:/app/data \
+            -e AllowAnonymous=true -p 127.0.0.1:8080:8080 phishing-analyser:scan
           for i in $(seq 1 45); do curl -fsS http://127.0.0.1:8080/health > health.json 2>/dev/null && break; sleep 2; done
           grep -q '"contentModelLoaded":true' health.json || { docker logs smoke; exit 1; }
           python3 - <<'EOF'
@@ -107,7 +110,15 @@ jobs:
           print(f"phishing probability: plain {plain}, math-bold {folded}")
           assert plain > 0.5, "the model did not flag an obvious phishing text"
           assert folded == plain, "math-bold text was not folded to plain letters (invariant globalization?)"
+          vote = urllib.request.Request("http://127.0.0.1:8080/api/v1/feedback",
+              json.dumps({"correct": True, "verdict": "phishing", "score": 0.9}).encode(), {"Content-Type": "application/json"})
+          assert urllib.request.urlopen(vote, timeout=30).status == 204, "feedback could not be written to the volume"
           EOF
+          # Without keys and without AllowAnonymous the production image must refuse to start.
+          if docker run --rm --read-only --tmpfs /tmp phishing-analyser:scan > closed.log 2>&1; then
+            echo "the image started without API keys"; exit 1
+          fi
+          grep -q "No API keys are configured" closed.log
       - name: Trivy - fail on fixable HIGH/CRITICAL vulnerabilities, secrets or misconfigurations
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -196,6 +207,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: production
+    concurrency: deploy-production
     permissions:
       packages: read
     steps:
@@ -204,13 +216,22 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: ${{ secrets.VPS_HOST_FINGERPRINT }}   # optional: pins the server's SSH host key
           script: |
             set -e
             cd ${{ vars.VPS_APP_DIR || '~/phishing-analyser' }}
+            # docker-compose.yml and .env (API keys) are placed on the server by hand - see the README.
+            test -f docker-compose.yml || { echo "docker-compose.yml is missing in $(pwd)"; exit 1; }
+            test -f .env || { echo ".env (API_CLIENT_0_NAME / API_CLIENT_0_SHA256) is missing in $(pwd)"; exit 1; }
+            trap 'docker logout ghcr.io' EXIT   # don't leave the short-lived registry token on the server
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             export GHCR_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-            docker compose pull phishing-analyser
-            # --wait blocks until the container's HEALTHCHECK reports healthy (fails the deploy otherwise)
-            docker compose up -d --wait --wait-timeout 120 phishing-analyser
+            export TAG=sha-$(echo "${{ github.sha }}" | cut -c1-7)   # exactly the image this run built, not "latest"
+            # --no-build + --pull always: a failed pull fails the deploy instead of falling back to a local build or an
+            # old image. --wait blocks until the container's HEALTHCHECK reports healthy.
+            docker compose up -d --no-build --pull always --wait --wait-timeout 120 phishing-analyser
             docker image prune -f
-            curl -fsS http://127.0.0.1:5080/health
+            curl -fsS http://127.0.0.1:5080/health | grep -q '"contentModelLoaded":true'
+            # The deployed API must reject a request without a key.
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"subject":"x"}' http://127.0.0.1:5080/api/v1/analyse)
+            [ "$code" = "401" ] || { echo "expected 401 without an API key, got $code"; exit 1; }

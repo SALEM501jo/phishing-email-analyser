@@ -17,7 +17,10 @@ if (args is ["--new-api-key", var clientName])
 {
     var (key, hash) = ApiClients.NewKey();
     Console.WriteLine($"Key for the extension (shown once, store it there): {key}");
-    Console.WriteLine("Server settings (environment variables, N = next free index):");
+    Console.WriteLine("With docker-compose.yml: add these two lines to the .env file next to it (N = 0 or 1):");
+    Console.WriteLine($"  API_CLIENT_N_NAME={clientName}");
+    Console.WriteLine($"  API_CLIENT_N_SHA256={hash}");
+    Console.WriteLine("Without compose, the same values as environment variables (N = next free index):");
     Console.WriteLine($"  ApiClients__N__Name={clientName}");
     Console.WriteLine($"  ApiClients__N__KeySha256={hash}");
     return 0;
@@ -86,7 +89,8 @@ builder.Services.AddSingleton(sp => new EmailAnalyser(
 builder.Services.AddSingleton(sp =>
 {
     var configured = builder.Configuration["Feedback:DatabasePath"] ?? "data/feedback.db";
-    return new FeedbackStore(Path.IsPathRooted(configured) ? configured : Path.Combine(builder.Environment.ContentRootPath, configured));
+    return new FeedbackStore(Path.IsPathRooted(configured) ? configured : Path.Combine(builder.Environment.ContentRootPath, configured),
+        builder.Configuration.GetValue("Feedback:MaxDatabaseMb", 256) * 1024L * 1024L);
 });
 
 // Per-client API keys (hashes in config); see ApiClients.
@@ -94,6 +98,11 @@ var apiClients = new ApiClients(
     builder.Configuration.GetSection("ApiClients").Get<List<ApiClientOptions>>() ?? [],
     builder.Configuration["ApiKey"]);
 builder.Services.AddSingleton(apiClients);
+// Fail closed: a production server with no keys would be an open API, and its /health would still look fine.
+// (A misnamed variable in .env is all it takes.) Running open must be an explicit choice.
+if (builder.Environment.IsProduction() && !apiClients.Enabled && !builder.Configuration.GetValue("AllowAnonymous", false))
+    throw new InvalidOperationException("No API keys are configured (ApiClients__0__Name / ApiClients__0__KeySha256). " +
+                                        "Create one with --new-api-key <name>, or set AllowAnonymous=true to run an open API on purpose.");
 
 // The reverse proxy's X-Forwarded-For is honoured only when the request comes from a configured proxy address.
 // Behind Docker the proxy connects from the bridge gateway, not loopback - docker-compose.yml sets it.
@@ -206,11 +215,15 @@ app.MapPost("/api/v1/analyse", async Task<Results<Ok<AnalysisResult>, Validation
     .RequireRateLimiting("analyse")
     .WithName("AnalyseEmail");
 
-app.MapPost("/api/v1/feedback", Results<NoContent, ValidationProblem> (FeedbackRequest request, FeedbackStore store, Telemetry telemetry, ILogger<Program> logger) =>
+app.MapPost("/api/v1/feedback", Results<NoContent, ValidationProblem, StatusCodeHttpResult> (FeedbackRequest request, FeedbackStore store, Telemetry telemetry, ILogger<Program> logger) =>
     {
         if (request.Validate() is { Count: > 0 } errors)
             return TypedResults.ValidationProblem(errors);
-        store.Add(request);
+        if (!store.Add(request))
+        {
+            logger.LogWarning("Feedback store is full - vote not recorded");
+            return TypedResults.StatusCode(StatusCodes.Status507InsufficientStorage);
+        }
         telemetry.Feedback(request.Verdict!, request.Correct);
         logger.LogInformation("Feedback: verdict={Verdict} correct={Correct} withEmail={WithEmail}", request.Verdict, request.Correct, request.Email is not null);
         return TypedResults.NoContent();
