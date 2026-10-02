@@ -7,7 +7,7 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
 ## At a glance
 - **What it is.** An end-to-end ML security product: a Chrome (MV3) extension, an ASP.NET Core API, and a fine-tuned multilingual transformer. It flags phishing in the Gmail message you're reading, in English or Arabic, and explains why.
 - **ML pipeline.**
-  - Fine-tuned `distilbert-base-multilingual-cased` on about 70,000 emails: public corpora, 10,800 machine-translated Arabic emails, and about 11,000 LLM-generated paired emails from Kaggle GPUs.
+  - Fine-tuned `distilbert-base-multilingual-cased` on about 70,000 emails: public corpora, 10,800 machine-translated Arabic emails, and 1,199 LLM-generated paired emails. About 11,000 more were generated on Kaggle GPUs for two later training rounds, which were measured and not shipped.
   - Exported to **int8 ONNX** and served **in C#** through ONNX Runtime. Python is used offline only.
 - **Measured.** On held-out 2022–2026 test mail, phishing recall rose **from 63% to 80% at a 0.12% false-positive rate**, compared with the bag-of-words baseline.
 - **Then tested on a real mailbox, which the test set had hidden.** Legitimate notification mail was warned 21–98% of the time. Diagnostics traced this to the text model. Fixes were measured on real phishing *and* real mail before shipping, cutting social-mail warnings **from 21% to 6.6%**. [Details below](#real-mailbox-evaluation-the-number-the-test-set-hid).
@@ -112,8 +112,10 @@ Full analyser on the **same** 5,052 held-out modern English test emails, with th
 
 | Text model in the analyser | "phishing" recall | any-warning recall | legitimate → "phishing" | legitimate → any warning | AUC |
 |---|---|---|---|---|---|
-| ML.NET linear (previous) | 63.4% | 80.0% | 0.14% (6) | 0.65% | 0.984 |
+| ML.NET linear (previous)* | 63.4% | 80.0% | 0.14% (6) | 0.65% | 0.984 |
 | **Transformer (shipped)** | **79.7%** | **87.2%** | **0.12% (5)** | **0.53%** | **0.996** |
+
+\* The linear row was re-run for this comparison alongside the transformer, so it differs slightly from the earlier table above (62.6%, 0.30%), which was measured when the linear model was released.
 
 The transformer catches **116 more of 711 phishing emails with fewer false alarms**.
 
@@ -194,7 +196,7 @@ The test set's "legitimate" mail is developer mailing lists. A real inbox is mos
 | **Diagnostics** | Almost every warning came from wording alone (594 of 640 in Updates), not from rules | – |
 | **Verified-brand trust**: SPF/DKIM/DMARC pass, the sender is a catalogued brand's own domain, and links stay on it | Real brand mail was being called phishing | On 3,120 real phishing emails with genuine headers, the first version trusted **6.1%** (free `gmail.com`/`icloud.com` accounts and genuine GitHub/Google notifications carrying attacker links). After closing those holes: **0.13%** |
 | **Click-tracking and platform redirects**: X/Facebook redirectors and SendGrid/Mandrill trackers no longer count as "text shows X, goes to Y" | 81 false link warnings on social mail, found from domain pairs only | A brand name routed through a tracker by someone else, or a non-platform sender using a platform's redirector, still fires |
-| **Established sender**: authenticated, independent domain over a year old (RDAP), no warning sign, so the wording counts **half** | Receipts and notifications from ordinary shops | Measured at each domain's age **on the day the phishing email was sent**. Wording × 0.5 lets **3 of 3,120** warned phishing emails through; × 0.2 would have let **263** through, because many phishers send from old or compromised authenticated domains |
+| **Established sender**: authenticated, independent domain over a year old (RDAP), no warning sign, so the wording counts **half** | Receipts and notifications from ordinary shops | Measured at each domain's age **on the day the phishing email was sent**. Measured on the **711 test-split phishing emails the model never saw** (on training emails its scores are inflated): wording × 0.5 lets **0** through; × 0.2 would have let **50** through, because many phishers send from old or compromised authenticated domains |
 | **Hostile-input crash**: hosts with characters illegal in international domain names made .NET throw | Found while scoring real phishing; an attacker could have made an email un-analysable | Every URL path now fails closed; regression tests cover it |
 
 **Two retrained candidate models were rejected on this evaluation**, because their test-set gains did not hold on real mail.
