@@ -116,23 +116,24 @@ public static class CorpusBuilder
         // Down-sample the huge old ham/spam pools so they don't drown out phishing and modern mail.
         emails = Cap(emails, e => !e.Modern && e.Class == EmailClasses.Legitimate, OldLegitimateCap, seed);
         emails = Cap(emails, e => !e.Modern && e.Class == EmailClasses.Spam, OldSpamCap, seed);
-        return (emails, stats);
+        return (NearDuplicates.Cluster(emails), stats);
     }
 
     /// <summary>
-    /// Deterministic split by thread/campaign (subject), so replies to a thread or copies of one phishing
-    /// campaign never appear on both sides. Buckets: 0-19 test, 20-29 tune (modern mail only), rest train.
+    /// Deterministic split by campaign group: emails sharing a subject thread OR largely the same text
+    /// (<see cref="NearDuplicates"/>), across classes, all land on one side. Buckets: 0-19 test, 20-29 tune (modern
+    /// mail only), rest train.
     /// </summary>
     public static Split SplitOf(CorpusEmail email)
     {
-        var bucket = StableBucket(email.Class + "|" + email.Group);
+        var bucket = StableBucket(email.Group);
         if (bucket < 20) return Split.Test;
         if (bucket < 30 && email.Modern) return Split.Tune;
         return Split.Train;
     }
 
     /// <summary>Cross-validation fold, by thread/campaign like the split.</summary>
-    public static int Fold(CorpusEmail email, int folds) => StableBucket("fold|" + email.Class + "|" + email.Group) % folds;
+    public static int Fold(CorpusEmail email, int folds) => StableBucket("fold|" + email.Group) % folds;
 
     private static int StableBucket(string key)
     {

@@ -61,7 +61,11 @@ if (args.ElementAtOrDefault(0) == "--link-mismatches")
 var processedDir = Path.Combine("data", "processed");
 if (args.ElementAtOrDefault(0) == "--prepare-transformer")
 {
-    TransformerDataset.Prepare(args.ElementAtOrDefault(1) ?? processedDir);
+    // [processedDir] [--generators a,b]: e.g. --generators qwen2.5:7b-instruct reproduces round 1's generated data.
+    var generatorsAt = Array.IndexOf(args, "--generators");
+    var generators = generatorsAt > 0 && generatorsAt + 1 < args.Length ? args[generatorsAt + 1].Split(',').ToHashSet() : null;
+    var prepareDir = args.Length > 1 && !args[1].StartsWith("--", StringComparison.Ordinal) ? args[1] : processedDir;
+    TransformerDataset.Prepare(prepareDir, generators);
     return;
 }
 var exportOnly = args.ElementAtOrDefault(0) == "--export-corpus";
@@ -154,6 +158,7 @@ if (exportOnly)
     var keptSet = kept.ToHashSet(ReferenceEqualityComparer.Instance);
     var issues = oldTrain.Concat(modernTrain).Where(e => !keptSet.Contains(e)).ToHashSet<CorpusEmail>(ReferenceEqualityComparer.Instance);
     TransformerDataset.Export(emails, issues, Path.Combine(processedDir, "corpus.jsonl"));
+    NoveltyRecall.LeakReport([.. oldTrain, .. modernTrain], [.. oldTest, .. modernTest]);
     return;
 }
 

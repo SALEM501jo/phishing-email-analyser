@@ -53,6 +53,22 @@ public static partial class NoveltyRecall
         }
     }
 
+    /// <summary>How many test emails per class are largely contained in training - no model needed. Run after a re-split.</summary>
+    public static void LeakReport(IReadOnlyList<CorpusEmail> train, IReadOnlyList<CorpusEmail> test)
+    {
+        var seen = new HashSet<ulong>();
+        foreach (var e in train)
+            foreach (var h in Shingles(e.Text))
+                seen.Add(h);
+        Console.WriteLine("Leak check - test emails whose text is largely in training:");
+        foreach (var group in test.GroupBy(e => (e.Modern ? "modern" : "old") + " " + e.Class).OrderBy(g => g.Key))
+        {
+            var containment = group.Select(e => Shingles(e.Text).ToList()).Where(s => s.Count >= MinShingles)
+                .Select(s => s.Count(seen.Contains) / (double)s.Count).ToList();
+            Console.WriteLine($"  {group.Key,-18} n={group.Count(),6}  judged={containment.Count,6}  >=50%: {containment.Count(c => c >= 0.5),5}  >=80%: {containment.Count(c => c >= 0.8),5}");
+        }
+    }
+
     private static void Print(string label, IEnumerable<ScoredEmail> emails, double phishing, double suspicious)
     {
         var list = emails.ToList();

@@ -57,8 +57,21 @@ public static partial class TransformerDataset
     /// <see cref="EmailTextNormalizer"/>, and writes one file per split. Rows flagged by confident learning are
     /// left out of training (but kept in val/test, which are never cleaned).
     /// </summary>
-    public static void Prepare(string processedDir)
+    /// <param name="generators">When given, only generated emails from these generator models are used (e.g. round 1's
+    /// "qwen2.5:7b-instruct"); the independent test file is always kept.</param>
+    public static void Prepare(string processedDir, IReadOnlySet<string>? generators = null)
     {
+        // Translations take the split of the email they were translated from (id + "-ar"), so a re-split corpus moves
+        // its translations with it - a translation of a test email must never be in training.
+        var sourceSplit = new Dictionary<string, string>();
+        var corpusPath = Path.Combine(processedDir, "corpus.jsonl");
+        if (File.Exists(corpusPath))
+            foreach (var line in File.ReadLines(corpusPath))
+            {
+                var source = JsonSerializer.Deserialize<ExchangeRow>(line, Json)!;
+                sourceSplit[source.Id] = source.Split;
+            }
+
         var inputs = new[] { "corpus.jsonl", "corpus_ar.jsonl", "generated.jsonl", "generated_test.jsonl" }
             .Select(f => Path.Combine(processedDir, f))
             .Where(File.Exists)
@@ -78,7 +91,10 @@ public static partial class TransformerDataset
             foreach (var line in File.ReadLines(file))
             {
                 var row = JsonSerializer.Deserialize<ExchangeRow>(line, Json)!;
-                var split = independentTest ? "test" : generated ? GeneratedSplit(row) : row.Split == "tune" ? "val" : row.Split;
+                if (generated && !independentTest && generators is not null && !generators.Contains(GeneratorOf(row.Source)))
+                    continue;
+                var corpusSplit = row.Id.EndsWith("-ar", StringComparison.Ordinal) && sourceSplit.TryGetValue(row.Id[..^3], out var s) ? s : row.Split;
+                var split = independentTest ? "test" : generated ? GeneratedSplit(row) : corpusSplit == "tune" ? "val" : corpusSplit;
                 if (split == "train" && row.LabelIssue)
                     continue;
 
@@ -138,6 +154,10 @@ public static partial class TransformerDataset
         var bucket = BitConverter.ToUInt32(SHA256.HashData(Encoding.UTF8.GetBytes(row.PairKey ?? row.Id)), 0) % 100;
         return bucket < 15 ? "test" : bucket < 25 ? "val" : "train";
     }
+
+    /// <summary>"generated (qwen2.5:7b-instruct)" -> "qwen2.5:7b-instruct".</summary>
+    private static string GeneratorOf(string source) =>
+        source.IndexOf('(') is var open and >= 0 && source.IndexOf(')', open) is var close and > 0 ? source[(open + 1)..close] : source;
 
     private static string StableId(string key) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..16].ToLowerInvariant();
