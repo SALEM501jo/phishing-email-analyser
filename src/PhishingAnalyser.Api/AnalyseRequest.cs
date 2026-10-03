@@ -30,6 +30,8 @@ public sealed class AnalyseRequest
             errors["body"] = ["Provide at least a subject, body or sender."];
         if (Body?.Length > MaxBody)
             errors["body"] = [$"Body must be at most {MaxBody} characters."];
+        if (SenderEmail?.Length > 320 || ReplyTo?.Length > 320 || SenderName?.Length > 500 || Subject?.Length > 2_000)
+            errors["sender"] = ["Sender address (320), reply-to (320), sender name (500) or subject (2000) too long."];
         if (RawHeaders?.Length > MaxHeaders)
             errors["rawHeaders"] = [$"Raw headers must be at most {MaxHeaders} characters."];
         // "is null" checks: JSON like {"links":[null]} deserialises to a list holding null, which must be a 400, not a crash.

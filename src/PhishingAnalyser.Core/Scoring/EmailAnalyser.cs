@@ -177,10 +177,16 @@ public sealed class EmailAnalyser(
     };
 
     /// <summary>QR-code destinations are checked exactly like ordinary links (look-alike domains, blocklists, age ...).</summary>
-    private static EmailSubmission WithQrLinks(EmailSubmission e) =>
-        e.QrCodeUrls is not { Count: > 0 } qr || e.Links?.Any(l => l.Text == QrLinkText) == true
-            ? e
-            : WithLinks(e, [.. qr.Take(10).Select(u => new EmailLink(QrLinkText, u)), .. e.Links ?? []]); // first: never past a link cap
+    /// Added once per address: deciding by link TEXT ("is there already a link called 'QR code'?") let a sender switch
+    /// every QR check off with one such link (found by the fuzzer).
+    private static EmailSubmission WithQrLinks(EmailSubmission e)
+    {
+        if (e.QrCodeUrls is not { Count: > 0 } qr)
+            return e;
+        var added = (e.Links ?? []).Where(l => l.Text == QrLinkText).Select(l => l.Href).ToHashSet(StringComparer.Ordinal);
+        var missing = qr.Take(10).Where(u => !added.Contains(u)).Select(u => new EmailLink(QrLinkText, u)).ToList();
+        return missing.Count == 0 ? e : WithLinks(e, [.. missing, .. e.Links ?? []]); // first: never past a link cap
+    }
 
     private const string QrLinkText = "QR code";
 

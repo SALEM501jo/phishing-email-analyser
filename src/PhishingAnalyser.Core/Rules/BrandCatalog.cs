@@ -58,6 +58,16 @@ public sealed class BrandCatalog
     private const int MinFuzzyLength = 5;
 
     public IReadOnlyList<Brand> Brands { get; }
+
+    /// <summary>
+    /// Every brand domain with its label, computed once: re-parsing each of ~110 domains against the Public Suffix List
+    /// on every call, plus a new Regex each, made 200 links take over 1.5 s (fuzzer).
+    /// </summary>
+    private Lazy<List<(Brand Brand, string Domain, string Label)>> BrandDomains =>
+        _brandDomains ??= new(() => Brands.SelectMany(b => b.Domains.Select(d =>
+            (b, d, DomainUtils.SecondLevelLabel(DomainUtils.RegistrableDomain(d))))).ToList());
+
+    private Lazy<List<(Brand Brand, string Domain, string Label)>>? _brandDomains;
     public IReadOnlyList<string> UserContentHosts { get; }
 
     public BrandCatalog(IReadOnlyList<Brand> brands, IReadOnlyList<string>? userContentHosts = null)
@@ -87,6 +97,10 @@ public sealed class BrandCatalog
     public BrandMatch? DetectImpersonation(string host)
     {
         host = host.ToLowerInvariant();
+        // Longer than DNS allows (253 characters, 63 per label) can't be a real site; the fuzzy matching below costs time in
+        // proportion to label length, and an over-long sender domain was a cheap way to burn seconds of CPU (fuzzer).
+        if (host.Length > 253 || host.Split('.').Any(l => l.Length > 63))
+            return null;
         if (DomainUtils.IsIpAddress(host) || OwnerOf(host) is not null)
             return null;
 
@@ -99,17 +113,16 @@ public sealed class BrandCatalog
         var folded = DomainUtils.FoldHomoglyphs(label);
         var subdomainPart = host.Length > registrable.Length ? host[..^(registrable.Length + 1)] : "";
 
-        foreach (var brand in Brands)
+        // The subdomain's labels and hyphen-separated words, once: "a brand label bounded by start/end, '.' or '-'" is
+        // exactly "one of these tokens" - a set lookup instead of ~110 regex scans of a possibly long subdomain (fuzzer).
+        var subdomainTokens = subdomainPart.Split('.', '-').ToHashSet(StringComparer.Ordinal);
+        foreach (var (brand, brandDomain, brandLabel) in BrandDomains.Value)
         {
-            foreach (var brandDomain in brand.Domains)
             {
-                var brandLabel = DomainUtils.SecondLevelLabel(DomainUtils.RegistrableDomain(brandDomain));
-
                 // "paypal.com.account-verify.xyz", "apple.id-check.net"
                 if (subdomainPart.Length > 0 &&
                     (subdomainPart.Contains(brandDomain, StringComparison.Ordinal) ||
-                     (brand.MatchLabelInDomains && brandLabel.Length >= 4 &&
-                      Regex.IsMatch(subdomainPart, $@"(^|[.\-]){Regex.Escape(brandLabel)}([.\-]|$)"))))
+                     (brand.MatchLabelInDomains && brandLabel.Length >= 4 && subdomainTokens.Contains(brandLabel))))
                     return new(brand, "brand-in-subdomain", host, registrable, brandDomain);
 
                 if (!brand.MatchLabelInDomains)

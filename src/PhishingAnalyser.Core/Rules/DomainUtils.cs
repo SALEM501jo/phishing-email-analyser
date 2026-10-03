@@ -81,7 +81,7 @@ public static class DomainUtils
         if (string.IsNullOrWhiteSpace(url))
             return null;
 
-        url = url.Trim();
+        url = BrowserForm(url.Trim());
         if (!url.Contains("://", StringComparison.Ordinal))
             url = "http://" + url;
 
@@ -100,6 +100,24 @@ public static class DomainUtils
             // unparseable - which fails closed everywhere (no trust, no brand match) - instead of crashing the verdict.
             return null;
         }
+    }
+
+    /// <summary>
+    /// Rewrites the forms browsers accept but .NET's Uri reads differently: tabs/newlines inside (browsers drop them),
+    /// backslashes ("http:\\host\path"), protocol-relative "//host" and "https:host" / "https:/host". Without this,
+    /// a raw-IP link written that way got no finding at all (found by the fuzzer).
+    /// </summary>
+    private static string BrowserForm(string url)
+    {
+        url = url.Replace("\t", "").Replace("\r", "").Replace("\n", "");
+        var queryAt = url.IndexOfAny(['?', '#']);
+        url = queryAt < 0 ? url.Replace('\\', '/') : url[..queryAt].Replace('\\', '/') + url[queryAt..];
+        if (url.StartsWith("//", StringComparison.Ordinal))
+            return "https:" + url;
+        foreach (var scheme in (string[])["https:", "http:"])
+            if (url.StartsWith(scheme, StringComparison.OrdinalIgnoreCase) && !url.AsSpan(scheme.Length).StartsWith("//"))
+                return scheme + "//" + url[scheme.Length..].TrimStart('/');
+        return url;
     }
 
     public static string? GetEmailDomain(string? email)
