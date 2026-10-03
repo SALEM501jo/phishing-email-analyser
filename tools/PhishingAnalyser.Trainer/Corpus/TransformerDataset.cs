@@ -129,7 +129,10 @@ public static partial class TransformerDataset
     [System.Text.RegularExpressions.GeneratedRegex(@"(\b\S+\s+)\1{5,}")]
     private static partial System.Text.RegularExpressions.Regex RepeatedWord();
 
-    /// <summary>Generated emails are split by pair key (brand|type|language), so both halves of a pair land together.</summary>
+    /// <summary>
+    /// Generated emails are split by pair key (brand|type|language|pair index), so both halves of a pair land together.
+    /// Scenarios (brand|type|language) are NOT held out: the same scenario can appear in training and in test.
+    /// </summary>
     private static string GeneratedSplit(ExchangeRow row)
     {
         var bucket = BitConverter.ToUInt32(SHA256.HashData(Encoding.UTF8.GetBytes(row.PairKey ?? row.Id)), 0) % 100;
