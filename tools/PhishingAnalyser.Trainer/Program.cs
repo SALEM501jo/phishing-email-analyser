@@ -68,10 +68,11 @@ var exportOnly = args.ElementAtOrDefault(0) == "--export-corpus";
 var evaluateTransformer = args.ElementAtOrDefault(0) == "--evaluate-transformer"; // calibrate + evaluate models/transformer/
 var authStats = args.ElementAtOrDefault(0) == "--auth-stats"; // SPF/DKIM/DMARC + verified-brand rates on real phishing
 var establishedStudy = args.ElementAtOrDefault(0) == "--established-sender-study"; // [mbox] - see EstablishedSenderStudy
+var noveltyRecall = args.ElementAtOrDefault(0) == "--novelty-recall"; // recall on test emails not largely seen in training
 var studyMbox = establishedStudy ? args.ElementAtOrDefault(1) : null;
 if (establishedStudy)
     args = [];
-if (exportOnly || evaluateTransformer || authStats)
+if (exportOnly || evaluateTransformer || authStats || noveltyRecall)
     args = args.Skip(1).ToArray();
 
 var dataDir = args.ElementAtOrDefault(0) ?? Path.Combine("data", "raw");
@@ -113,6 +114,15 @@ if (establishedStudy)
     // Test split only: on phishing the transformer was trained on, its text scores are inflated, which would understate
     // how many phishing emails a trust rule lets through.
     await EstablishedSenderStudy.RunAsync(modernTest.Where(e => e.Class == EmailClasses.Phishing), studyMbox, studyClassifier, shippedScoring);
+    return;
+}
+
+if (noveltyRecall)
+{
+    // Recall on test emails whose text is NOT largely in training (the split groups by subject, not body).
+    var linear = ContentClassifier.Load(Path.Combine("models", "phishing-content-model.zip"));
+    using var transformer = TransformerClassifier.Load(Path.Combine("models", "transformer"));
+    NoveltyRecall.Run([.. oldTrain, .. modernTrain], modernTune, modernTest, new HybridContentClassifier(transformer, linear));
     return;
 }
 

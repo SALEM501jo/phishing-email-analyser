@@ -209,10 +209,18 @@ After the fixes, LinkedIn and GitHub notifications score *safe*.
 
 ### What the numbers do and don't show
 An audit of the evaluation itself found these; they are stated here rather than buried:
-- **Near-duplicates cross the split.** The split groups emails by subject, so the same phishing body under a different subject can sit in training and in test. About 18% of the 711 test phishing emails have a training email sharing at least 80% of its text. The headline recall is therefore optimistic by an amount not yet measured; the fix is to cluster by body before splitting.
+- **Near-duplicates cross the split, and that inflates recall by about 5 points.** The split groups emails by subject, so the same phishing body under a different subject can sit in training and in test. Measured (`--novelty-recall`, re-run on 3 October with the current rules and corpus):
+
+  | Test phishing (n = 723) | "phishing" verdict | any warning |
+  |---|---|---|
+  | all | 79.5% | 87.1% |
+  | **unseen: under 50% of its text appears in training** (n = 319) | **74.9%** | **83.4%** |
+  | near-copy: 80% or more appears in training (n = 172) | 90.1% | 90.7% |
+
+  On campaigns it has effectively never seen, the model catches about **3 in 4** phishing emails with a "phishing" verdict. The same run puts the false-positive rate on legitimate mail at **0.3%** with today's rules (0.12% was measured on 29 September). The fix is to cluster by body before splitting and retrain.
 - **Spam is scored separately.** Precision and the false-positive rate are phishing against *legitimate* mail. On the test spam, 9.5% got a "phishing" verdict and 20% some warning; counting spam as "not phishing", "phishing" precision is 79% rather than 99%.
 - **The real-mailbox numbers are in-sample.** The same mailbox drove the fixes it reports on, and it has no labelled phishing, so it measures false alarms only. A second mailbox, or later mail from the same one, is needed to confirm them.
-- **The headline test numbers were measured on 29 September**, with default options and no raw headers, before later rule changes. Several of those changes loosen link findings, which can only lower recall.
+- **The headline test numbers were measured on 29 September**, with default options and no raw headers, before later rule changes; the re-run above is the current picture.
 - **The trust-rule factors were chosen on the data they are reported on** (the verified-brand fixes and the ×0.5 established-sender factor); confirming them needs phishing collected after the rules were frozen.
 
 ### Honest limitations
