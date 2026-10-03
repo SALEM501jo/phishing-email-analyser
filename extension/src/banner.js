@@ -92,20 +92,32 @@ function el(tag, className, text) {
  * In right-to-left text, embedded Latin runs (domains, brand names, "SPF/DKIM") get reordered by the bidi
  * algorithm. Wrapping each run in <bdi> isolates it so the Arabic sentence reads in order. DOM-built, no HTML parsing.
  */
+const NON_ARABIC_RUN = /[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]+/g;
+const CLOSING = { "(": ")", "[": "]", '"': '"', "'": "'", "\u00AB": "\u00BB" };
+
 function bidiText(tag, className, text, rtl) {
   const node = el(tag, className);
   if (!rtl) {
     node.textContent = text;
     return node;
   }
-  const latinRun = /[A-Za-z0-9'"@][\w.\-@/:%'"&]*(?:\s+[A-Za-z0-9][\w.\-@/:%'"&]*)*/g;
+  // Every stretch without Arabic letters that holds a letter or digit is ONE left-to-right phrase: a URL with "?a=1",
+  // "X (Twitter)", ".xyz", or a homoglyph domain with a Cyrillic letter. Cutting it into several isolates made the
+  // right-to-left paragraph show the pieces in reverse order (Arabic audit).
   let last = 0;
-  for (const match of text.matchAll(latinRun)) {
-    // Trailing punctuation belongs to the Arabic sentence, not the isolated run (else "Bank:" shows the colon on the wrong side).
-    const run = match[0].replace(/[:;,.!?]+$/, "");
-    node.append(text.slice(last, match.index));
-    node.append(el("bdi", null, run));
-    last = match.index + run.length;
+  for (const match of text.matchAll(NON_ARABIC_RUN)) {
+    let start = match.index;
+    let end = start + match[0].length;
+    while (start < end && /\s/.test(text[start])) start++;
+    // Trailing punctuation belongs to the Arabic sentence (else "Bank:" shows the colon on the wrong side).
+    while (end > start && /[\s:;,.!?]/.test(text[end - 1])) end--;
+    // Enclosing brackets or quotes stay outside, mirrored by the paragraph: "(.xyz)" isolates ".xyz".
+    if (end - start > 2 && CLOSING[text[start]] === text[end - 1]) { start++; end--; }
+    const core = text.slice(start, end);
+    if (!/[\p{L}\p{N}]/u.test(core)) continue;
+    node.append(text.slice(last, start));
+    node.append(el("bdi", null, core));
+    last = end;
   }
   node.append(text.slice(last));
   return node;

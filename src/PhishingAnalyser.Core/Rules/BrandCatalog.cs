@@ -148,6 +148,9 @@ public sealed class BrandCatalog
 
         var squashed = Squash(text);
         var joined = squashed.Replace(" ", "");
+        // The LONGEST matching keyword wins: "البنك العربي الوطني" is Arab National Bank, not Arab Bank.
+        Brand? best = null;
+        var bestLength = 0;
         foreach (var brand in Brands)
         {
             foreach (var raw in brand.Keywords)
@@ -156,13 +159,14 @@ public sealed class BrandCatalog
                 var keywordJoined = keyword.Replace(" ", "");
                 // Short/ambiguous keywords ("ups", "orange", "apple") must appear as whole words;
                 // longer ones may also match when spaces are removed ("Bank Of America" -> "bankofamerica").
-                if (Regex.IsMatch(squashed, $@"\b{Regex.Escape(keyword)}\b") ||
-                    (keywordJoined.Length >= 8 && joined.Contains(keywordJoined, StringComparison.Ordinal)))
-                    return brand;
+                if (keywordJoined.Length > bestLength &&
+                    (Regex.IsMatch(squashed, $@"\b{Regex.Escape(keyword)}\b") ||
+                     (keywordJoined.Length >= 8 && joined.Contains(keywordJoined, StringComparison.Ordinal))))
+                    (best, bestLength) = (brand, keywordJoined.Length);
             }
         }
 
-        return null;
+        return best;
     }
 
     /// <summary>
@@ -188,7 +192,14 @@ public sealed class BrandCatalog
         return null;
     }
 
-    /// <summary>Lower-case, Arabic-normalised, punctuation to spaces, single-spaced.</summary>
+    /// <summary>
+    /// Lower-case, folded (invisible characters out, NFKC, Persian look-alike letters), Arabic-normalised, punctuation
+    /// to spaces, single-spaced. Without the folding, a name in presentation forms or with a zero-width character
+    /// inside renders exactly like the brand but didn't match it (Arabic audit).
+    /// </summary>
     private static string Squash(string text) =>
-        Regex.Replace(Regex.Replace(PhishingAnalyser.Core.Content.ArabicText.Normalize(text.ToLowerInvariant()), @"[^\p{L}\p{N} ]", " "), @"\s+", " ").Trim();
+        Regex.Replace(Regex.Replace(
+            PhishingAnalyser.Core.Content.ArabicText.FoldLookalikes(PhishingAnalyser.Core.Content.ArabicText.Normalize(
+                PhishingAnalyser.Core.Content.EmailTextNormalizer.Fold(text).ToLowerInvariant())),
+            @"[^\p{L}\p{N} ]", " "), @"\s+", " ").Trim();
 }

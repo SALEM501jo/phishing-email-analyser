@@ -38,10 +38,18 @@ public static partial class EmailTextNormalizer
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
 
-    // Zero-width and soft-hyphen characters are used to split words ("pa​ssword") so keyword
-    // and n-gram matching misses them; they never carry meaning in email text.
-    [GeneratedRegex("[­​-‏⁠﻿]")]
+    // Invisible characters used to split words ("pa\u200Bssword", Arabic with a letter mark inside) so keyword and
+    // n-gram matching misses them: soft hyphen, combining grapheme joiner, Arabic letter mark, zero-width and
+    // directional marks, bidi embeddings/overrides/isolates, word joiner and invisible operators, BOM.
+    [GeneratedRegex("[\u00AD\u034F\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]")]
     private static partial Regex Invisible();
+
+    /// <summary>
+    /// Invisible characters removed, invalid code points dropped, NFKC applied: the form in which look-alike text
+    /// (presentation forms, full-width, a zero-width space inside a name) compares equal to the plain text.
+    /// </summary>
+    public static string Fold(string text) =>
+        WithoutInvalidCodePoints(Invisible().Replace(text, "")).Normalize(NormalizationForm.FormKC);
 
     /// <summary>
     /// False when the runtime can't do Unicode normalization: .NET's invariant-globalization mode silently skips it, so
@@ -58,7 +66,7 @@ public static partial class EmailTextNormalizer
         text = RemoveScriptAndStyle(text);
         text = HtmlTag().Replace(text, " ");
         text = WebUtility.HtmlDecode(text);
-        text = WithoutInvalidCodePoints(Invisible().Replace(text, "")).Normalize(NormalizationForm.FormKC);
+        text = Fold(text);
         text = ArabicText.Normalize(text);
         text = Url().Replace(text, " urltoken ");
         text = EmailAddress().Replace(text, " emailtoken ");

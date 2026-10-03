@@ -20,6 +20,7 @@
     { "name": "Wells Fargo", "domains": ["wellsfargo.com"], "keywords": ["wellsfargo"] },
     { "name": "HSBC", "domains": ["hsbc.com", "hsbc.co.uk"], "keywords": ["hsbc"] },
     { "name": "Arab Bank", "domains": ["arabbank.com", "arabbank.jo"], "keywords": ["arabbank", "arab bank", "البنك العربي"] },
+    { "name": "Arab National Bank", "domains": ["anb.com.sa"], "keywords": ["arab national bank", "البنك العربي الوطني"] },
     { "name": "Dropbox", "domains": ["dropbox.com", "dropboxmail.com"], "keywords": ["dropbox"] },
     { "name": "DocuSign", "domains": ["docusign.com", "docusign.net"], "keywords": ["docusign"] },
     { "name": "Adobe", "domains": ["adobe.com"], "keywords": ["adobe"] },

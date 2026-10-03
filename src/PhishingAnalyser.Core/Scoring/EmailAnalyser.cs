@@ -149,6 +149,15 @@ public sealed class EmailAnalyser(
                     : $"Wording resembles ordinary correspondence (phishing likelihood {pct})"));
             }
         }
+        // A preview language's wording still moves the score (at half weight), so it must be explained too - otherwise a
+        // "suspicious" Arabic verdict could come with no reason at all (Arabic audit).
+        else if (content.Evaluated && content.LanguagePreview && content.Probability >= 0.5)
+        {
+            var pct = Percent(content.Probability);
+            reasons.Add((content.Probability * 0.5, arabic
+                ? $"صياغة الرسالة تشبه رسائل التصيّد ({pct} حسب مصنّف النصوص) - دعم هذه اللغة تجريبي، لذلك يُحتسب هذا الدليل بنصف الوزن"
+                : $"Wording resembles phishing ({pct} per the text classifier) - support for this language is a preview, so this counts half"));
+        }
 
         // Context and positive evidence (where short links lead; "SPF, DKIM and DMARC all passed") go last.
         reasons.AddRange(links.Findings.Concat(headers.Findings).Where(f => f.Weight == 0).Select(f => (0.0, f.In(language))));
