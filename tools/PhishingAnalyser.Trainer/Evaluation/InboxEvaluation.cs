@@ -20,7 +20,12 @@ namespace PhishingAnalyser.Trainer.Evaluation;
 /// </summary>
 public static class InboxEvaluation
 {
-    public static object Run(string mboxPath, IContentClassifier classifier, ScoringOptions scoring, int maxEnglishPerCategory = 100_000)
+    /// <param name="mboxPath">A Takeout .mbox file, or a FOLDER of .eml files (searched recursively). In a folder, each
+    /// message names its own group in an "X-Eval-Group" header (e.g. "honeypot/marketing") - used for evaluation sets
+    /// collected from public sources of real legitimate mail, where there are no Gmail labels.</param>
+    /// <param name="withHeaders">False blanks the raw headers, as when the extension can't fetch "Show original": no
+    /// SPF/DKIM/DMARC findings and no sender trust. Needed for collected mail whose headers carry a forwarding hop.</param>
+    public static object Run(string mboxPath, IContentClassifier classifier, ScoringOptions scoring, int maxEnglishPerCategory = 100_000, bool withHeaders = true)
     {
         var headers = new Core.Rules.HeaderAnalyser(Core.Rules.BrandCatalog.Default);
         var links = new Core.Rules.LinkAnalyser(Core.Rules.BrandCatalog.Default);
@@ -34,23 +39,24 @@ public static class InboxEvaluation
 
         var groups = new Dictionary<(string Category, string Language), List<Row>>();
         var parsed = 0;
-        using var stream = File.OpenRead(mboxPath);
-        var parser = new MimeParser(stream, MimeFormat.Mbox);
-        while (!parser.IsEndOfStream)
+        foreach (var message in Messages(mboxPath))
         {
-            MimeMessage message;
-            try { message = parser.ParseMessage(); }
-            catch (FormatException) { break; }
             if (++parsed % 1000 == 0)
                 Console.WriteLine($"  {parsed} messages read ...");
 
-            var category = Categorise(message.Headers["X-Gmail-Labels"] ?? "");
+            var category = message.Headers["X-Eval-Group"]?.Trim() is { Length: > 0 } group ? group : Categorise(message.Headers["X-Gmail-Labels"] ?? "");
             if (category is null)
                 continue;
 
             EmailSubmission submission;
             try { submission = ToSubmission(message); }
             catch (Exception) { continue; } // malformed MIME: skip, never crash on real mail
+            if (!withHeaders)
+                submission = new EmailSubmission
+                {
+                    Subject = submission.Subject, SenderName = submission.SenderName, SenderEmail = submission.SenderEmail,
+                    ReplyTo = submission.ReplyTo, Body = submission.Body, Links = submission.Links,
+                };
 
             var result = shipped.Analyse(submission);
             var key = (category, result.Language);
@@ -108,6 +114,35 @@ public static class InboxEvaluation
             messagesRead = parsed,
             groups = report,
         };
+    }
+
+    /// <summary>Every message of an mbox file, or of every .eml file under a folder; unreadable ones are skipped.</summary>
+    private static IEnumerable<MimeMessage> Messages(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            foreach (var file in Directory.EnumerateFiles(path, "*.eml", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            {
+                if (file.Contains(Path.DirectorySeparatorChar + "_work" + Path.DirectorySeparatorChar))
+                    continue; // collectors' scratch copies
+                MimeMessage? message = null;
+                try { message = MimeMessage.Load(file); }
+                catch (Exception e) when (e is FormatException or IOException) { }
+                if (message is not null)
+                    yield return message;
+            }
+            yield break;
+        }
+
+        using var stream = File.OpenRead(path);
+        var parser = new MimeParser(stream, MimeFormat.Mbox);
+        while (!parser.IsEndOfStream)
+        {
+            MimeMessage message;
+            try { message = parser.ParseMessage(); }
+            catch (FormatException) { yield break; }
+            yield return message;
+        }
     }
 
     private sealed record Row(string Shipped, string Promoted, string WithBrandTrust, bool TextOnly, bool VerifiedBrand, string[] Codes);

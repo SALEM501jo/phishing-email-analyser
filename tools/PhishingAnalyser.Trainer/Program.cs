@@ -23,9 +23,13 @@ if (args.ElementAtOrDefault(0) == "--eval-inbox")
         : linearModel;
     var scoring = new ScoringOptions();
     if (classifier.Model?.Thresholds is { } t) { scoring.PhishingThreshold = t.Phishing; scoring.SuspiciousThreshold = t.Suspicious; }
-    Console.WriteLine($"Evaluating model {classifier.Model?.Version} on {mbox}");
-    var inboxReport = InboxEvaluation.Run(mbox, classifier, scoring);
-    var reportPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(mbox))!, $"inbox-report-{classifier.Model?.Version ?? "linear"}.json"); // git-ignored data/
+    // --no-headers: score as the extension does when "Show original" isn't available (no authentication results).
+    var noHeaders = args.Contains("--no-headers");
+    Console.WriteLine($"Evaluating model {classifier.Model?.Version} on {mbox}{(noHeaders ? " (without raw headers)" : "")}");
+    var inboxReport = InboxEvaluation.Run(mbox, classifier, scoring, withHeaders: !noHeaders);
+    // A folder of .eml files keeps its report inside the folder; an mbox keeps it next to the file. Both are in git-ignored data/.
+    var reportName = $"{(Directory.Exists(mbox) ? "report" : "inbox-report")}-{classifier.Model?.Version ?? "linear"}{(noHeaders ? "-noheaders" : "")}.json";
+    var reportPath = Path.Combine(Directory.Exists(mbox) ? Path.GetFullPath(mbox) : Path.GetDirectoryName(Path.GetFullPath(mbox))!, reportName);
     File.WriteAllText(reportPath, JsonSerializer.Serialize(new { model = classifier.Model?.Version, report = inboxReport }, ContentClassifier.JsonOptions));
     Console.WriteLine($"Wrote {reportPath}");
     return;
