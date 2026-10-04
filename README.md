@@ -18,7 +18,7 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
   - An **SSRF-safe** link expander.
   - **Adversarial reviews**: 7 holes in the trust rules, 11 in the extension and API, and 10 Arabic bugs, each proven by a failing test, then fixed. It also found that
     production had silently skipped a text-normalisation step that training used. [Details](#adversarial-review-red-team).
-  - CI with Trivy, SBOM, gitleaks, CodeQL and a smoke test of the built image; 315 .NET and 32 extension tests.
+  - CI with Trivy, SBOM, gitleaks, CodeQL and a smoke test of the built image; 320 .NET and 32 extension tests.
 
 ```
 ┌──────────── Gmail tab ─────────────┐          ┌──────────── ASP.NET Core API (Docker) ────────────────┐
@@ -315,7 +315,7 @@ regex on 20,000 random inputs, so training and serving still see the same text.
 
 ```bash
 python scripts/models.py fetch                                  # model binaries from the GitHub Release, SHA-256 verified (needs the GitHub CLI: gh auth login)
-dotnet test                                                     # 315 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, red team, end-to-end
+dotnet test                                                     # 320 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, red team, end-to-end
 dotnet run --project src/PhishingAnalyser.Api --launch-profile http   # http://localhost:5080/swagger
 ```
 

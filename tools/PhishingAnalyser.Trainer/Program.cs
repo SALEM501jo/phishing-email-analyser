@@ -40,24 +40,22 @@ if (args.ElementAtOrDefault(0) == "--link-mismatches")
     // Which domain pairs trigger text-href-mismatch on real mail? Registrable domains and counts only.
     var links = new PhishingAnalyser.Core.Rules.LinkAnalyser(PhishingAnalyser.Core.Rules.BrandCatalog.Default);
     var pairs = new Dictionary<string, int>();
-    using var stream = File.OpenRead(args[1]);
-    var parser = new MimeKit.MimeParser(stream, MimeKit.MimeFormat.Mbox);
-    while (!parser.IsEndOfStream)
+    // An mbox file or a folder of .eml files. Sender domain included: a brand's own redirector is judged by who sent it.
+    foreach (var message in InboxEvaluation.Messages(args[1]))
     {
-        MimeKit.MimeMessage message;
-        try { message = parser.ParseMessage(); } catch (FormatException) { break; }
-        IReadOnlyList<EmailLink> emailLinks;
-        try { emailLinks = CorpusSources.FromMime(message).Submission?.Links ?? []; } catch (Exception) { continue; }
-        foreach (var link in emailLinks)
+        EmailSubmission? submission;
+        try { submission = CorpusSources.FromMime(message).Submission; } catch (Exception) { continue; }
+        var sender = PhishingAnalyser.Core.Rules.DomainUtils.GetEmailDomain(submission?.SenderEmail);
+        foreach (var link in submission?.Links ?? [])
         {
-            if (!links.Analyse([link]).Findings.Any(f => f.Code == "text-href-mismatch")) continue;
+            if (!links.Analyse([link], sender).Findings.Any(f => f.Code == "text-href-mismatch")) continue;
             var shown = PhishingAnalyser.Core.Rules.DomainUtils.GetHost(link.Text!.Trim()) ?? "?";
             var actual = PhishingAnalyser.Core.Rules.DomainUtils.GetHost(link.Href) ?? "?";
-            var key = $"{PhishingAnalyser.Core.Rules.DomainUtils.RegistrableDomain(shown)} -> {PhishingAnalyser.Core.Rules.DomainUtils.RegistrableDomain(actual)}";
+            var key = $"from {(sender is null ? "?" : PhishingAnalyser.Core.Rules.DomainUtils.RegistrableDomain(sender))}: shows {shown} -> goes to {actual}";
             pairs[key] = pairs.GetValueOrDefault(key) + 1;
         }
     }
-    foreach (var (pair, n) in pairs.OrderByDescending(kv => kv.Value).Take(25))
+    foreach (var (pair, n) in pairs.OrderByDescending(kv => kv.Value).Take(40))
         Console.WriteLine($"{n,5}  {pair}");
     return;
 }

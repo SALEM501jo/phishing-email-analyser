@@ -117,7 +117,7 @@ public static class InboxEvaluation
     }
 
     /// <summary>Every message of an mbox file, or of every .eml file under a folder; unreadable ones are skipped.</summary>
-    private static IEnumerable<MimeMessage> Messages(string path)
+    internal static IEnumerable<MimeMessage> Messages(string path)
     {
         if (Directory.Exists(path))
         {

@@ -46,6 +46,10 @@ public sealed partial class LinkAnalyser(BrandCatalog brands)
         "mandrillapp.com", "sendgrid.net", "awstrack.me", "list-manage.com", "mcsv.net", "mailchi.mp", "hubspotlinks.com",
         "mailgun.org", "sparkpostmail.com", "klaviyomail.com", "cmail19.com", "cmail20.com", "exacttarget.com", "rs6.net",
         "fireeye.com", "urldefense.com", "urldefense.proofpoint.com", "mimecastprotect.com", "cudasvc.com",
+        // Found on an independent honeypot inbox (803 real emails): AWeber, Brevo/Sendinblue, SparkPost; and their peers.
+        "aweber.com", "sendibt2.com", "sendibt3.com", "spmailtechnolo.com", "klclick.com", "pstmrk.it", "createsend.com",
+        "mlsend.com", "convertkit-mail.com", "convertkit-mail2.com", "activehosted.com", "omnisendlink.com",
+        "customeriomail.com", "intercom-links.com",
     ];
 
     [GeneratedRegex(@"^(https?://)?([a-z0-9-]+\.)+[a-z]{2,}(/\S*)?$", RegexOptions.IgnoreCase)]

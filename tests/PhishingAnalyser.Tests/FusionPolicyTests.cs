@@ -171,6 +171,26 @@ public class TrackedLinkTests
         Assert.DoesNotContain("text-href-mismatch", codes);
     }
 
+    // Found on an independent honeypot inbox: trackers the list didn't know, and a brand's own mail domain.
+    [Theory]
+    [InlineData("news@tutorialsdojo.com", "portal.tutorialsdojo.com", "https://clicks.aweber.com/y/ct/?l=abc")]
+    [InlineData("hello@pons.com", "account.pons.com", "https://ebggicf.r.bh.d.sendibt3.com/tr/cl/abc")]
+    [InlineData("team@codepen.io", "clickclickclick.click", "https://post.spmailtechnolo.com/f/a/abc")]
+    public void More_mailing_service_trackers_are_reported_weakly(string sender, string text, string href)
+    {
+        var codes = Codes(sender, text, href);
+        Assert.Contains("tracked-link", codes);
+        Assert.DoesNotContain("text-href-mismatch", codes);
+    }
+
+    [Fact]
+    public void A_brands_own_mail_domain_is_not_a_mismatch() =>
+        Assert.DoesNotContain("text-href-mismatch", Codes("noreply@mail.bloombergbusiness.com", "bloomberg.com", "https://link.mail.bloombergbusiness.com/click/abc"));
+
+    [Fact]
+    public void Another_brand_shown_through_a_newly_listed_tracker_stays_a_full_mismatch() =>
+        Assert.Contains("text-href-mismatch", Codes("news@tutorialsdojo.com", "www.paypal.com", "https://clicks.aweber.com/y/ct/?l=abc"));
+
     [Fact]
     public void Brand_text_through_a_tracker_from_someone_else_stays_a_full_mismatch() =>
         Assert.Contains("text-href-mismatch", Codes("billing@random-shop.com", "www.paypal.com", "https://u123.ct.sendgrid.net/ls/click?x=1"));

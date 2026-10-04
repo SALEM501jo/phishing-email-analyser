@@ -9,6 +9,7 @@
     { "name": "Netflix", "domains": ["netflix.com"], "keywords": ["netflix", "نتفلكس", "نتفليكس"] },
     { "name": "Meta", "domains": ["facebook.com", "facebookmail.com", "fb.com", "fb.me", "instagram.com", "instagr.am", "meta.com", "whatsapp.com", "wa.me"], "keywords": ["facebook", "instagram", "whatsapp", "فيسبوك", "فيس بوك", "انستغرام", "انستجرام", "واتساب", "واتس اب"] },
     { "name": "LinkedIn", "domains": ["linkedin.com", "lnkd.in", "licdn.com"], "keywords": ["linkedin", "لينكد ان"] },
+    { "name": "Bloomberg", "domains": ["bloomberg.com", "bloombergbusiness.com", "bloomberg.net", "bloomberglaw.com", "bloombergtax.com", "bloomberg.org"], "keywords": ["bloomberg"] },
     { "name": "X (Twitter)", "domains": ["x.com", "twitter.com", "t.co", "twimg.com"], "keywords": ["twitter", "تويتر"], "matchLabelInDomains": false },
     { "name": "DHL", "domains": ["dhl.com", "dhl.de"], "keywords": ["dhl", "دي اتش ال"] },
     { "name": "FedEx", "domains": ["fedex.com"], "keywords": ["fedex", "فيدكس", "فيديكس"] },
