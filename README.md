@@ -154,6 +154,21 @@ The test sets never showed this, because their modern legitimate English mail is
 
 **Round 3 (trained, measured and rejected).** It added legitimate transactional and promotional emails in both languages, each with a phishing twin, from two generators (Qwen 2.5 14B and Gemma 2), with a third (Mistral NeMo) reserved for testing. Its English test numbers were the best so far (80.4% "phishing" recall at 0.12% false positives), but Arabic still failed the promotion checks, and on the real mailbox it warned on 61% of English social mail against 18% for the shipped model. Round 1 stays shipped.
 
+**Round 4 (campaign-aware split; trained, measured and rejected).** The round-1 recipe, retrained after the split was fixed to keep near-duplicate campaigns on one side (see [what the numbers do and don't show](#what-the-numbers-do-and-dont-show)). On the leak-free test set it is the better model:
+
+| On test phishing from campaigns not seen in training | Round 1 (shipped) | Round 4 |
+|---|---|---|
+| "phishing" verdict | 74.9% | **76.1%** |
+| any warning | 83.4% | **84.7%** |
+| legitimate mail called "phishing" | 0.3% | **0.1%** |
+| spam called "phishing" | 13.4% | **7.8%** |
+
+For round 4, recall on all test phishing (76.5%) and on unseen campaigns (76.1%) are nearly equal, so the leak no longer inflates the number. It was still not shipped:
+- It **failed the API contract test** *"marketing email is reported as spam, not phishing"*: the generic "50% off" promo scored 89% phishing. Three of four training rounds have now failed this probe, so it is sensitive to training noise; that is a reason to fix the cause, not to delete the test.
+- On the **real mailbox** it was worse where most mail is: English social notifications 5.0% → 7.0% warned with the trust rules on (and 18% → 52% without them), promotions 31% → 44%, Arabic social 9.8% → 15.7%. It was better only on purchases (94% → 70%).
+
+Round 1 stays shipped. The campaign-aware split stays in the trainer for every future round.
+
 ### Techniques that made the difference
 - **Confident learning (label cleaning):** the honeypot also catches marketing, and the spam trap also catches phishing. Each noisy email is scored by a model that never saw it (3-fold, split by campaign). Training emails whose label the model confidently rejects are dropped, 489 in total: 271 "phishing" that were really spam, 72 "spam" that were really phishing, and so on. English test data is never cleaned. (Northcutt et al., 2021, the idea behind *cleanlab*.)
 - **Platt calibration:** the phishing probability is rescaled on held-out data so that 0.8 means roughly 80%. For the linear model the Brier score went 0.0438 → 0.0422; for the over-confident transformer it went 0.0475 → 0.0416 (A = 0.47).
