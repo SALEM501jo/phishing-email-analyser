@@ -220,7 +220,7 @@ The test set's "legitimate" mail is developer mailing lists. A real inbox is mos
 **The round-3 candidate was rejected on this evaluation**: its test-set gains did not hold on real mail (it warned on 61% of English social mail). Round 2 had already been rejected on the independent test set and the API contract test.
 
 **Live test in Gmail.** Running the extension on real messages found three bugs that no offline evaluation could show:
-- file names in link text were treated as websites: `december-chart-inputs.csv`, and `score.py`, because `.py` is Paraguay's domain;
+- file names in link text were treated as websites: `quarterly-chart-data.csv`, and `score.py`, because `.py` is Paraguay's domain;
 - Gmail rewrites links as `google.com/url?q=…`, which hid brand links from the verified-brand check;
 - Gmail turns street addresses into Google Maps links, which broke brand trust for LinkedIn's and GitHub's footers.
 

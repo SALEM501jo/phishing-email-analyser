@@ -206,10 +206,10 @@ public class FileNameLinkTextTests
     private static readonly LinkAnalyser Links = new(BrandCatalog.Default);
 
     [Theory]
-    [InlineData("december-chart-inputs.csv", "https://tt.na.teamtailor.com/files/123")]
-    [InlineData("freight_rate_report.pdf", "https://drive.example-cdn.com/f/9")]
+    [InlineData("quarterly-chart-data.csv", "https://files.example-portal.com/files/123")]
+    [InlineData("annual_sales_report.pdf", "https://drive.example-cdn.com/f/9")]
     [InlineData("photo.png", "https://cdn.example.org/p.png")]
-    [InlineData("score.py", "https://tt.na.teamtailor.com/files/9")]     // .py is Paraguay's TLD - still a file name here
+    [InlineData("score.py", "https://files.example-portal.com/files/9")]     // .py is Paraguay's TLD - still a file name here
     [InlineData("README.md", "https://github.com/x/y/blob/main/README.md")]
     public void File_names_are_not_websites(string text, string href) =>
         Assert.DoesNotContain(Links.Analyse([new EmailLink(text, href)]).Findings, f => f.Code == "text-href-mismatch");
@@ -223,7 +223,7 @@ public class FileNameLinkTextTests
     [Theory]
     [InlineData("paypal.com", true)]
     [InlineData("login.example.co.uk", true)]
-    [InlineData("december-chart-inputs.csv", false)]
+    [InlineData("quarterly-chart-data.csv", false)]
     [InlineData("report.pdf", false)]
     public void Known_tlds_come_from_the_public_suffix_list(string host, bool expected) =>
         Assert.Equal(expected, DomainUtils.HasKnownTld(host));

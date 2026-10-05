@@ -139,7 +139,7 @@ public static class DomainUtils
         IPAddress.TryParse(host.Trim('[', ']'), out _);
 
     /// <summary>
-    /// True when the host ends in a real top-level domain from the Public Suffix List. "december-chart-inputs.csv"
+    /// True when the host ends in a real top-level domain from the Public Suffix List. "quarterly-chart-data.csv"
     /// looks like a domain but isn't - found live, where a file name in link text was reported as a deceptive link.
     /// (".zip" and ".mov" ARE real TLDs, so "invoice.zip" still counts - correctly, it's a known lure.)
     /// </summary>

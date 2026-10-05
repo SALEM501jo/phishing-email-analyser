@@ -35,3 +35,7 @@ kaggle/*.zip
 results.zip
 __pycache__/
 *.pyc
+
+# Local-only working files: interview prep, guide, audit reports, assistant settings
+/docs/
+/.claude/
