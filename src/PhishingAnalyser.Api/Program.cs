@@ -172,6 +172,9 @@ app.UseOpenTelemetryPrometheusScrapingEndpoint(ctx => ctx.Request.Path == "/metr
 // Warm the model at startup so the first request isn't slow and a broken model fails loudly in the logs.
 var classifier = app.Services.GetRequiredService<IContentClassifier>();
 
+// A page for people: without it the public address answers a bare 404.
+app.MapGet("/", () => Results.Content(Landing.Html(classifier.Model?.Version), "text/html; charset=utf-8")).ExcludeFromDescription();
+
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",

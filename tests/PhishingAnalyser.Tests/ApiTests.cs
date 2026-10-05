@@ -25,6 +25,15 @@ public class ApiTests(WebApplicationFactory<Program> factory) : IClassFixture<We
     }
 
     [Fact]
+    public async Task Root_shows_a_landing_page_instead_of_a_404()
+    {
+        var response = await CreateClient().GetAsync("/");
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("Phishing Email Analyser", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Marketing_email_is_reported_as_spam_not_phishing()
     {
         var response = await CreateClient().PostAsJsonAsync("/api/v1/analyse", new
