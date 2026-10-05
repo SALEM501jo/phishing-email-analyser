@@ -6,6 +6,10 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
 
 **Live:** the API runs at `https://phishing.ahsanse3r.com` ([health and model version](https://phishing.ahsanse3r.com/health)). Analysis needs a per-install API key; every push to `main` is tested, scanned and deployed there automatically.
 
+![The verdict banner on three sample emails: an English phishing email, a legitimate email and an Arabic phishing email](assets/demo.gif)
+
+*Sample emails in a mock mail view; the banner is the extension's real code and the verdicts are real responses from the live API.*
+
 ## At a glance
 - **What it is.** An end-to-end ML security product: a Chrome (MV3) extension, an ASP.NET Core API, and a fine-tuned multilingual transformer. It flags phishing in the Gmail message you're reading, in English or Arabic, and explains why.
 - **ML pipeline.**
