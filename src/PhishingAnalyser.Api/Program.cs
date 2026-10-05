@@ -144,6 +144,19 @@ builder.Services.AddRateLimiter(o =>
         }));
 });
 
+// The public demo: anyone may try it, so it gets its own much smaller allowance - per visitor here, and one shared
+// by all visitors (DemoBudget) so it can never crowd the server.
+var demoEnabled = builder.Configuration.GetValue("Demo:Enabled", true);
+builder.Services.AddSingleton(new DemoBudget(builder.Configuration.GetValue("Demo:TotalPerMinute", 60)));
+builder.Services.Configure<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>(o =>
+    o.AddPolicy("demo", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        "demo:" + IpBucket(ctx.Connection.RemoteIpAddress),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("Demo:PerMinute", 10),
+            Window = TimeSpan.FromMinutes(1),
+        })));
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -172,8 +185,48 @@ app.UseOpenTelemetryPrometheusScrapingEndpoint(ctx => ctx.Request.Path == "/metr
 // Warm the model at startup so the first request isn't slow and a broken model fails loudly in the logs.
 var classifier = app.Services.GetRequiredService<IContentClassifier>();
 
+// Pages for people (the landing page and the public demo). They run no inline script or style, so a strict
+// Content-Security-Policy costs nothing; it is limited to these pages so Swagger still works in Development.
+app.Use((ctx, next) =>
+{
+    var path = ctx.Request.Path;
+    if (path == "/" || path.StartsWithSegments("/try") || path == "/try.html" || path == "/try.js" || path == "/site.css")
+    {
+        var h = ctx.Response.Headers;
+        h["Content-Security-Policy"] = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+        h["X-Content-Type-Options"] = "nosniff";
+        h["Referrer-Policy"] = "no-referrer";
+        h["X-Frame-Options"] = "DENY";
+    }
+    return next(ctx);
+});
+app.UseStaticFiles();
+
 // A page for people: without it the public address answers a bare 404.
-app.MapGet("/", () => Results.Content(Landing.Html(classifier.Model?.Version), "text/html; charset=utf-8")).ExcludeFromDescription();
+app.MapGet("/", () => Results.Content(Landing.Html(classifier.Model?.Version, demoEnabled), "text/html; charset=utf-8")).ExcludeFromDescription();
+
+if (demoEnabled)
+{
+    app.MapGet("/try", () => Results.Redirect("/try.html")).ExcludeFromDescription();
+
+    // No key, no outside lookups (the synchronous Analyse does rules + text model only), nothing stored.
+    app.MapPost("/api/v1/demo/analyse", Results<Ok<AnalysisResult>, ValidationProblem, StatusCodeHttpResult> (
+            DemoRequest request, EmailAnalyser analyser, DemoBudget budget, Telemetry telemetry, ILogger<Program> logger) =>
+        {
+            if (request.Validate() is { Count: > 0 } errors)
+                return TypedResults.ValidationProblem(errors);
+            if (!budget.TryTake())
+                return TypedResults.StatusCode(StatusCodes.Status429TooManyRequests);
+
+            var started = Stopwatch.GetTimestamp();
+            var result = analyser.Analyse(request.ToSubmission());
+            telemetry.Analysed(result, Stopwatch.GetElapsedTime(started));
+            logger.LogInformation("Demo analysed: verdict={Verdict} score={Score}", result.Verdict, result.Score);
+            return TypedResults.Ok(result);
+        })
+        .RequireRateLimiting("demo")
+        .WithName("DemoAnalyse");
+}
 
 app.MapGet("/health", () => Results.Ok(new
 {

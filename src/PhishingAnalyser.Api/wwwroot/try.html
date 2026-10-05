@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try the Phishing Email Analyser</title>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<h1>Try the Phishing Email Analyser</h1>
+<p class="muted">Paste an email, or load a sample, and see the verdict and the reasons. English or Arabic.</p>
+
+<div class="note">
+  <strong>Use sample or made-up text, not private mail.</strong> Nothing you enter is stored; the server logs only the
+  verdict and the score. This public demo runs the text model and the sender and link checks. The Gmail extension adds
+  authentication results, domain age and blocklist lookups, which the demo deliberately leaves out.
+</div>
+
+<div class="samples">
+  <span class="muted">Samples:</span>
+  <button type="button" data-sample="phish">Phishing (English)</button>
+  <button type="button" data-sample="legit">Ordinary email</button>
+  <button type="button" data-sample="arabic">Phishing (Arabic)</button>
+</div>
+
+<form id="form">
+  <div class="row">
+    <div><label for="senderName">Sender name</label><input id="senderName" maxlength="200" autocomplete="off" dir="auto"></div>
+    <div><label for="senderEmail">Sender address</label><input id="senderEmail" maxlength="200" autocomplete="off" dir="ltr"></div>
+  </div>
+  <label for="subject">Subject</label><input id="subject" maxlength="300" autocomplete="off" dir="auto">
+  <label for="body">Body</label><textarea id="body" maxlength="5000" dir="auto"></textarea>
+  <div class="row">
+    <div><label for="linkText">Link text (optional)</label><input id="linkText" maxlength="500" autocomplete="off" dir="ltr" placeholder="what the reader sees, e.g. www.paypal.com"></div>
+    <div><label for="linkUrl">Link address (optional)</label><input id="linkUrl" maxlength="500" autocomplete="off" dir="ltr" placeholder="where it really goes"></div>
+  </div>
+  <p><button class="primary" id="go" type="submit">Analyse</button></p>
+</form>
+
+<div id="result" aria-live="polite"></div>
+
+<p class="muted">How good is it? On phishing campaigns it has never seen, it flags about 3 in 4, and it calls about 0.3% of
+legitimate test mail phishing. It still over-warns on receipts and marketing mail.
+<a href="https://github.com/SALEM501jo/phishing-email-analyser#what-the-numbers-do-and-dont-show">The honest numbers</a>
+&middot; <a href="/">About this server</a></p>
+<script src="/try.js"></script>
+</body>
+</html>

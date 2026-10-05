@@ -8,21 +8,14 @@ namespace PhishingAnalyser.Api;
 /// </summary>
 public static class Landing
 {
-    public static string Html(string? modelVersion) => $$"""
+    public static string Html(string? modelVersion, bool demoEnabled) => $$"""
         <!doctype html>
         <html lang="en">
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Phishing Email Analyser API</title>
-        <style>
-          :root { color-scheme: light dark; }
-          body { font: 16px/1.6 system-ui, sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; }
-          h1 { font-size: 1.6rem; margin-bottom: .2rem; }
-          .muted { opacity: .7; }
-          code { background: rgba(127,127,127,.18); padding: .1em .35em; border-radius: 4px; }
-          li { margin: .3rem 0; }
-        </style>
+        <link rel="stylesheet" href="/site.css">
         </head>
         <body>
         <h1>Phishing Email Analyser</h1>
@@ -30,6 +23,7 @@ public static class Landing
         <p>This server scores an email for phishing and explains the verdict. A Chrome extension sends it the Gmail
         message you have open; it combines a multilingual transformer (English and Arabic) with checks on the sender,
         the links and the attachments.</p>
+        {{(demoEnabled ? "<p><a class=\"button\" href=\"/try\">Try it with a sample email</a></p>" : "")}}
         <ul>
           <li><a href="https://github.com/SALEM501jo/phishing-email-analyser">Source code, evaluation and honest numbers on GitHub</a></li>
           <li><a href="/health">Health and model version</a> (open)</li>

@@ -1,0 +1,31 @@
+:root { color-scheme: light dark; }
+body { font: 16px/1.6 system-ui, sans-serif; max-width: 46rem; margin: 2.5rem auto; padding: 0 1rem; }
+h1 { font-size: 1.6rem; margin-bottom: .2rem; }
+.muted { opacity: .72; }
+code { background: rgba(127,127,127,.18); padding: .1em .35em; border-radius: 4px; }
+li { margin: .3rem 0; }
+label { display: block; font-weight: 600; margin: .8rem 0 .2rem; }
+input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5rem .6rem; border: 1px solid rgba(127,127,127,.5); border-radius: 6px; background: transparent; color: inherit; }
+textarea { min-height: 9rem; resize: vertical; }
+.row { display: flex; gap: .8rem; flex-wrap: wrap; }
+.row > div { flex: 1 1 14rem; }
+button { font: inherit; padding: .5rem 1rem; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); background: transparent; color: inherit; cursor: pointer; }
+button.primary { background: #1a56db; border-color: #1a56db; color: #fff; font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+a.button { display: inline-block; padding: .5rem 1rem; border-radius: 6px; background: #1a56db; color: #fff; font-weight: 600; text-decoration: none; }
+.samples { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .6rem 0 0; }
+.note { border-left: 4px solid #1a56db; background: rgba(26,86,219,.08); padding: .6rem .9rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-size: .93rem; }
+#result { margin-top: 1.4rem; border-radius: 10px; padding: 1rem 1.1rem; border: 1px solid transparent; display: none; }
+#result.phishing { display: block; background: rgba(200,30,30,.10); border-color: rgba(200,30,30,.45); }
+#result.suspicious { display: block; background: rgba(210,140,0,.12); border-color: rgba(210,140,0,.5); }
+#result.safe { display: block; background: rgba(20,140,60,.10); border-color: rgba(20,140,60,.45); }
+#result.error { display: block; background: rgba(127,127,127,.12); border-color: rgba(127,127,127,.4); }
+.pill { display: inline-block; font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #fff; padding: .15rem .6rem; border-radius: 999px; margin-inline-end: .5rem; }
+.phishing .pill { background: #c81e1e; }
+.suspicious .pill { background: #b97700; }
+.safe .pill { background: #15803d; }
+.error .pill { background: #666; }
+.title { font-weight: 700; }
+.score { float: inline-end; opacity: .8; }
+#result ul { margin: .7rem 0 .4rem; padding-inline-start: 1.2rem; }
+.meta { font-size: .86rem; opacity: .8; margin-top: .3rem; }

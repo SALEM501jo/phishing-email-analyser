@@ -4,7 +4,7 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
 
 [![CI/CD](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml)
 
-**Live:** the API runs at `https://phishing.ahsanse3r.com` ([health and model version](https://phishing.ahsanse3r.com/health)). Analysis needs a per-install API key; every push to `main` is tested, scanned and deployed there automatically.
+**Live:** [try it in your browser](https://phishing.ahsanse3r.com/try) with a sample or your own text - no install, no key. The API runs at `https://phishing.ahsanse3r.com` ([health and model version](https://phishing.ahsanse3r.com/health)). Analysis needs a per-install API key; every push to `main` is tested, scanned and deployed there automatically.
 
 ![The verdict banner on three sample emails: an English phishing email, a legitimate email and an Arabic phishing email](assets/demo.gif)
 
@@ -24,7 +24,7 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
   - An **SSRF-safe** link expander.
   - **Adversarial reviews**: 7 holes in the trust rules, 11 in the extension and API, and 10 Arabic bugs, each proven by a failing test, then fixed. It also found that
     production had silently skipped a text-normalisation step that training used. [Details](#adversarial-review-red-team).
-  - CI with Trivy, SBOM, gitleaks, CodeQL and a smoke test of the built image; 321 .NET and 32 extension tests.
+  - CI with Trivy, SBOM, gitleaks, CodeQL and a smoke test of the built image; 330 .NET and 32 extension tests.
 
 ```
 ┌──────────── Gmail tab ─────────────┐          ┌──────────── ASP.NET Core API (Docker) ────────────────┐
@@ -285,6 +285,7 @@ The extension reads the rendered Gmail DOM instead of calling the Gmail API. Thi
 - **Rate limits per client**, or per real client IP without keys. `X-Forwarded-For` is honoured only from the configured proxy address (the Docker bridge gateway in `docker-compose.yml`, plus loopback, the framework default) with `ForwardLimit = 1`, so clients can't spoof their way into another bucket.
 - The container is read-only, runs as a non-root user with `no-new-privileges`, is limited to 640 MB and ½ CPU, and binds to 127.0.0.1 behind the existing reverse proxy. A `HEALTHCHECK` (the API binary probing its own `/health`; the image has no curl) lets `docker compose up --wait` gate deploys.
 - **Metrics** (OpenTelemetry → Prometheus) on a separate internal port 9464 that is never proxied: verdict and language counts, analysis latency, feedback, rejected keys, plus ASP.NET Core, rate-limiter and runtime metrics. Counts only, no content. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also push to a collector.
+- **Public demo, kept small on purpose.** `/try` posts to `/api/v1/demo/analyse`, which needs no key but has its own limits: 10 requests a minute per visitor and 60 a minute across all visitors, a 5,000-character body, no headers or attachments, and **no outside lookups** (domain age, blocklists, short-link expansion), so an anonymous visitor can never make the server contact other sites. Nothing is stored. The pages carry a strict Content-Security-Policy with no inline script or style. `Demo:Enabled=false` switches it off.
 - **Throughput.** ML.NET's `PredictionEngine` isn't thread-safe, so requests borrow engines from an object pool (the same approach as `PredictionEnginePool`) instead of queueing behind a lock. The ONNX transformer session is thread-safe as is.
 
 ### Adversarial review (red team)
@@ -321,7 +322,7 @@ regex on 20,000 random inputs, so training and serving still see the same text.
 
 ```bash
 python scripts/models.py fetch                                  # model binaries from the GitHub Release, SHA-256 verified (needs the GitHub CLI: gh auth login)
-dotnet test                                                     # 321 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, red team, end-to-end
+dotnet test                                                     # 330 tests: rules, Arabic, tokenizer + transformer parity, reputation (fake HTTP), SSRF guard, API security, red team, end-to-end
 dotnet run --project src/PhishingAnalyser.Api --launch-profile http   # http://localhost:5080/swagger
 ```
 
