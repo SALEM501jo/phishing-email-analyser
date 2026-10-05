@@ -4,6 +4,8 @@ A Chrome extension that scores the Gmail message you're reading for phishing and
 
 [![CI/CD](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/SALEM501jo/phishing-email-analyser/actions/workflows/ci-cd.yml)
 
+**Live:** the API runs at `https://phishing.ahsanse3r.com` ([health and model version](https://phishing.ahsanse3r.com/health)). Analysis needs a per-install API key; every push to `main` is tested, scanned and deployed there automatically.
+
 ## At a glance
 - **What it is.** An end-to-end ML security product: a Chrome (MV3) extension, an ASP.NET Core API, and a fine-tuned multilingual transformer. It flags phishing in the Gmail message you're reading, in English or Arabic, and explains why.
 - **ML pipeline.**
@@ -347,7 +349,7 @@ python scripts/models.py publish                                 # release "mode
 2. Create a key per extension install. The image is private by default, so either make the GHCR package public or run `docker login ghcr.io` with a `read:packages` token first:
    `docker run --rm ghcr.io/salem501jo/phishing-analyser --new-api-key laptop`
 3. Paste the key into the extension's options. Put the two printed lines into a `.env` file next to the compose file (`API_CLIENT_0_NAME=…`, `API_CLIENT_0_SHA256=…`). **The API refuses to start in production without a key**, so a misnamed variable can't silently leave it open.
-4. Add a reverse-proxy route, for example Caddy's `phishing.example.com { reverse_proxy 127.0.0.1:5080 }`. If the proxy itself runs in a container, see the note in `docker-compose.yml`.
+4. Add a reverse-proxy route, for example Caddy's `phishing.example.com { reverse_proxy 127.0.0.1:5080 }`. If the proxy itself runs in a container, see the note in `docker-compose.yml`. The live deployment is that second case: the API container joins the Docker network of an existing site's Caddy container, which proxies the subdomain to `phishing-analyser:8080`; `ForwardedHeaders__KnownNetworks__0` is set to that network's subnet, and the deploy job logs in as a dedicated non-root user that owns only the API's folder.
 5. Push to `main`: the deploy job runs after the image is built.
 
 Other workflows:
