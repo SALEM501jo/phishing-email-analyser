@@ -10,6 +10,8 @@ RUN dotnet publish src/PhishingAnalyser.Api/PhishingAnalyser.Api.csproj -c Relea
 
 # ---- runtime ----
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
+# Apply pending Debian security updates: the base image can lag behind a fix (the Trivy gate caught libpcre2 this way).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app .
 # Model binaries come from a GitHub Release (python scripts/models.py fetch); CI fetches them before this build.
